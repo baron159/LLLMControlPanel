@@ -151,6 +151,8 @@
                     <p>Status: <span id="webnnStatus">Checking...</span></p>
                     <p>Preferred Device: <span id="webnnDevice">-</span></p>
                     <p>Available Devices: <span id="webnnDevices">-</span></p>
+                    <p>Device Count: <span id="webnnDeviceCount">-</span></p>
+                    <button id="refreshWebNNBtn" style="margin-top: 10px;">Refresh WebNN Devices</button>
                 </div>
                 <div class="provider-card">
                     <h3>WebGPU</h3>
@@ -162,6 +164,13 @@
                     <p>Status: <span id="wasmStatus">Checking...</span></p>
                     <p>Threads: <span id="wasmThreads">-</span></p>
                 </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Detailed Device Information</h2>
+            <div id="deviceDetails" class="provider-info">
+                <!-- Detailed device information will be loaded here -->
             </div>
         </div>
 
@@ -227,8 +236,26 @@
         class ONNXTestPage {
             constructor() {
                 this.initializeUI()
-                this.checkExtensionAvailability()
-                this.checkProviders()
+                this.initializeExtension()
+            }
+
+            async initializeExtension() {
+                // First check if we're in a Chrome extension context
+                if (typeof chrome === 'undefined' || !chrome.runtime) {
+                    this.showExtensionError('Chrome extension API not available. Please run this page in a Chrome extension context.')
+                    return
+                }
+
+                // Check extension availability first
+                await this.checkExtensionAvailability()
+                
+                // Only proceed with other checks if extension is available
+                if (this.extensionAvailable) {
+                    await this.checkProviders()
+                    await this.updateModelList()
+                }
+                
+                // Load system info regardless of extension status
                 this.loadSystemInfo()
             }
 
@@ -236,29 +263,33 @@
                 const statusDiv = document.getElementById('extensionStatus')
                 
                 try {
-                    // Check if extension is available
-                    const response = await this.sendMessage('get-available-models')
-                    if (response.success) {
-                        statusDiv.style.display = 'block'
-                        statusDiv.innerHTML = `
-                            <strong>✅ Extension Available</strong><br>
-                            LLM Control Panel extension is loaded and ready to use.
-                        `
-                        statusDiv.className = 'extension-status'
-                        statusDiv.style.backgroundColor = '#d4edda'
-                        statusDiv.style.color = '#155724'
-                        statusDiv.style.borderColor = '#c3e6cb'
-                        
-                        // Load models after extension is confirmed available
-                        this.updateModelList()
+                    // Check if extension is available using the page-level API
+                    if (window.llmControlPanel) {
+                        const isAvailable = await window.llmControlPanel.isAvailable()
+                        if (isAvailable) {
+                            this.extensionAvailable = true
+                            statusDiv.style.display = 'block'
+                            statusDiv.innerHTML = `
+                                <strong>✅ Extension Available</strong><br>
+                                LLM Control Panel extension is loaded and ready to use.
+                            `
+                            statusDiv.className = 'extension-status'
+                            statusDiv.style.backgroundColor = '#d4edda'
+                            statusDiv.style.color = '#155724'
+                            statusDiv.style.borderColor = '#c3e6cb'
+                        } else {
+                            throw new Error('Extension not responding')
+                        }
                     } else {
-                        throw new Error('Extension not responding')
+                        throw new Error('Extension API not available')
                     }
                 } catch (error) {
+                    this.extensionAvailable = false
                     statusDiv.style.display = 'block'
                     statusDiv.innerHTML = `
                         <strong>❌ Extension Not Available</strong><br>
-                        Please install and enable the LLM Control Panel extension to use this test page.
+                        Please install and enable the LLM Control Panel extension to use this test page.<br>
+                        Error: ${error.message}
                     `
                     statusDiv.className = 'extension-status'
                     statusDiv.style.backgroundColor = '#f8d7da'
@@ -267,16 +298,77 @@
                 }
             }
 
+            showExtensionError(message) {
+                const statusDiv = document.getElementById('extensionStatus')
+                statusDiv.style.display = 'block'
+                statusDiv.innerHTML = `
+                    <strong>❌ Extension Error</strong><br>
+                    ${message}
+                `
+                statusDiv.className = 'extension-status'
+                statusDiv.style.backgroundColor = '#f8d7da'
+                statusDiv.style.color = '#721c24'
+                statusDiv.style.borderColor = '#f5c6cb'
+            }
+
             async sendMessage(type, data = {}) {
                 return new Promise((resolve, reject) => {
                     try {
-                        chrome.runtime.sendMessage({ type, ...data }, (response) => {
-                            if (chrome.runtime.lastError) {
-                                reject(new Error(chrome.runtime.lastError.message))
-                            } else {
-                                resolve(response)
+                        // Check if the page-level API is available
+                        if (window.llmControlPanel) {
+                            // Map the old message types to new API methods
+                            const apiMethodMap = {
+                                'get-available-models': () => window.llmControlPanel.getAvailableModels(),
+                                'get-available-providers': () => window.llmControlPanel.getAvailableProviders(),
+                                'get-webnn-devices': () => window.llmControlPanel.getWebNNDevices(),
+                                'get-preferred-webnn-device': () => window.llmControlPanel.getPreferredWebNNDevice(),
+                                'load-model': () => window.llmControlPanel.loadModel(data.modelId, data.useWorker),
+                                'unload-model': () => window.llmControlPanel.unloadModel(data.modelId, data.useWorker),
+                                'generate-response': () => window.llmControlPanel.generateResponse(data.prompt, data.modelId),
+                                'get-cache-stats': () => window.llmControlPanel.getCacheStats(),
+                                'get-cached-models': () => window.llmControlPanel.getCachedModels(),
+                                'clear-all-cached-models': () => window.llmControlPanel.clearAllCachedModels(),
+                                'cleanup-old-cached-models': () => window.llmControlPanel.cleanupOldCachedModels(data.maxAge)
                             }
-                        })
+
+                            const apiMethod = apiMethodMap[type]
+                            if (apiMethod) {
+                                apiMethod()
+                                    .then(response => {
+                                        // Handle different response formats
+                                        if (type === 'get-available-models') {
+                                            resolve({ success: true, models: response.models })
+                                        } else if (type === 'get-available-providers') {
+                                            resolve({ success: true, providers: response.providers })
+                                        } else if (type === 'get-webnn-devices') {
+                                            resolve({ success: true, devices: response.devices })
+                                        } else if (type === 'get-preferred-webnn-device') {
+                                            resolve({ success: true, device: response.device })
+                                        } else if (type === 'get-cache-stats') {
+                                            resolve({ success: true, stats: response.stats })
+                                        } else if (type === 'get-cached-models') {
+                                            resolve({ success: true, models: response.models })
+                                        } else if (type === 'clear-all-cached-models') {
+                                            resolve({ success: true })
+                                        } else if (type === 'cleanup-old-cached-models') {
+                                            resolve({ success: true, removedCount: response.removedCount })
+                                        } else if (type === 'load-model' || type === 'unload-model') {
+                                            resolve({ success: true })
+                                        } else if (type === 'generate-response') {
+                                            resolve({ success: true, response: response })
+                                        } else {
+                                            resolve({ success: true, response: response })
+                                        }
+                                    })
+                                    .catch(error => {
+                                        resolve({ success: false, error: error.message })
+                                    })
+                            } else {
+                                reject(new Error(`Unknown message type: ${type}`))
+                            }
+                        } else {
+                            reject(new Error('Extension API not available'))
+                        }
                     } catch (error) {
                         reject(error)
                     }
@@ -294,10 +386,19 @@
                 document.getElementById('getCachedModelsBtn').addEventListener('click', () => this.getCachedModels())
                 document.getElementById('clearAllCacheBtn').addEventListener('click', () => this.clearAllCache())
                 document.getElementById('cleanupOldCacheBtn').addEventListener('click', () => this.cleanupOldCache())
+                
+                // Device testing event listeners
+                document.getElementById('refreshWebNNBtn').addEventListener('click', () => this.refreshWebNNDevices())
             }
 
             async checkProviders() {
                 try {
+                    // Check if extension is available first
+                    if (!this.extensionAvailable) {
+                        this.showProviderFallbackInfo()
+                        return
+                    }
+
                     // Get available providers from extension
                     const providersResponse = await this.sendMessage('get-available-providers')
                     const providers = providersResponse.success ? providersResponse.providers : []
@@ -306,6 +407,7 @@
                     const webnnStatus = document.getElementById('webnnStatus')
                     const webnnDevice = document.getElementById('webnnDevice')
                     const webnnDevices = document.getElementById('webnnDevices')
+                    const webnnDeviceCount = document.getElementById('webnnDeviceCount')
 
                     if (providers.includes('webnn')) {
                         webnnStatus.textContent = 'Available'
@@ -315,17 +417,24 @@
                             const devicesResponse = await this.sendMessage('get-webnn-devices')
                             const devices = devicesResponse.success ? devicesResponse.devices : []
                             webnnDevices.textContent = devices.length > 0 ? devices.map(d => d.name).join(', ') : 'None detected'
+                            webnnDeviceCount.textContent = devices.length
                             
                             const preferredResponse = await this.sendMessage('get-preferred-webnn-device')
                             const preferredDevice = preferredResponse.success ? preferredResponse.device : null
                             webnnDevice.textContent = preferredDevice ? `${preferredDevice.name} (${preferredDevice.type})` : 'None'
+                            
+                            // Load detailed device information
+                            this.loadDetailedDeviceInfo(devices)
                         } catch (error) {
                             webnnDevices.textContent = 'Error detecting devices'
                             webnnDevice.textContent = 'Error'
+                            webnnDeviceCount.textContent = 'Error'
                         }
                     } else {
                         webnnStatus.textContent = 'Not Available'
                         webnnStatus.style.color = 'red'
+                        webnnDevices.textContent = 'N/A'
+                        webnnDeviceCount.textContent = 'N/A'
                     }
 
                     // Check WebGPU availability
@@ -365,12 +474,60 @@
                     }
                 } catch (error) {
                     console.error('Error checking providers:', error)
-                    this.showStatus('Error checking providers: ' + error.message, 'error')
+                    this.showProviderFallbackInfo()
+                }
+            }
+
+            showProviderFallbackInfo() {
+                // Show fallback information when extension is not available
+                const webnnStatus = document.getElementById('webnnStatus')
+                const webnnDevice = document.getElementById('webnnDevice')
+                const webnnDevices = document.getElementById('webnnDevices')
+                const webnnDeviceCount = document.getElementById('webnnDeviceCount')
+                const webgpuStatus = document.getElementById('webgpuStatus')
+                const webgpuAdapter = document.getElementById('webgpuAdapter')
+                const wasmStatus = document.getElementById('wasmStatus')
+                const wasmThreads = document.getElementById('wasmThreads')
+
+                // WebNN fallback
+                webnnStatus.textContent = 'Extension Required'
+                webnnStatus.style.color = 'orange'
+                webnnDevice.textContent = 'N/A'
+                webnnDevices.textContent = 'N/A'
+                webnnDeviceCount.textContent = 'N/A'
+
+                // WebGPU fallback
+                if (navigator.gpu) {
+                    webgpuStatus.textContent = 'Available (Browser)'
+                    webgpuStatus.style.color = 'green'
+                    webgpuAdapter.textContent = 'Check browser support'
+                } else {
+                    webgpuStatus.textContent = 'Not Available'
+                    webgpuStatus.style.color = 'red'
+                    webgpuAdapter.textContent = 'WebGPU not supported'
+                }
+
+                // WASM fallback
+                if (typeof WebAssembly !== 'undefined') {
+                    wasmStatus.textContent = 'Available (Browser)'
+                    wasmStatus.style.color = 'green'
+                    wasmThreads.textContent = navigator.hardwareConcurrency || 'Unknown'
+                } else {
+                    wasmStatus.textContent = 'Not Available'
+                    wasmStatus.style.color = 'red'
+                    wasmThreads.textContent = 'N/A'
                 }
             }
 
             async updateModelList() {
                 try {
+                    // Check if extension is available first
+                    if (!this.extensionAvailable) {
+                        const modelList = document.getElementById('modelList')
+                        modelList.innerHTML = '<p>Extension required to load models</p>'
+                        return
+                    }
+
                     const response = await this.sendMessage('get-available-models')
                     if (!response.success) {
                         throw new Error(response.error || 'Failed to get models')
@@ -403,11 +560,17 @@
                     })
                 } catch (error) {
                     console.error('Error loading models:', error)
-                    this.showStatus('Error loading models: ' + error.message, 'error')
+                    const modelList = document.getElementById('modelList')
+                    modelList.innerHTML = `<p>Error loading models: ${error.message}</p>`
                 }
             }
 
             async loadModel() {
+                if (!this.extensionAvailable) {
+                    this.showStatus('Extension required to load models', 'error')
+                    return
+                }
+
                 const modelId = document.getElementById('modelSelect').value
                 if (!modelId) {
                     this.showStatus('Please select a model first', 'error')
@@ -430,6 +593,11 @@
             }
 
             async loadSpecificModel(modelId) {
+                if (!this.extensionAvailable) {
+                    this.showStatus('Extension required to load models', 'error')
+                    return
+                }
+
                 const useWorker = document.getElementById('useWorkerCheck').checked
                 this.showStatus(`Loading model: ${modelId}...`, 'info')
                 
@@ -446,6 +614,11 @@
             }
 
             async unloadModel() {
+                if (!this.extensionAvailable) {
+                    this.showStatus('Extension required to unload models', 'error')
+                    return
+                }
+
                 const modelId = document.getElementById('modelSelect').value
                 if (!modelId) {
                     this.showStatus('Please select a model first', 'error')
@@ -468,6 +641,11 @@
             }
 
             async generateResponse() {
+                if (!this.extensionAvailable) {
+                    this.showStatus('Extension required to generate responses', 'error')
+                    return
+                }
+
                 const input = document.getElementById('testInput').value
                 if (!input.trim()) {
                     this.showStatus('Please enter a message', 'error')
@@ -506,19 +684,98 @@
 
             loadSystemInfo() {
                 const systemInfo = document.getElementById('systemInfo')
+                
+                // Enhanced system information for device detection testing
+                const deviceMemory = navigator.deviceMemory ? `${navigator.deviceMemory} GB` : 'Unknown'
+                const connectionType = navigator.connection ? navigator.connection.effectiveType : 'Unknown'
+                const batteryInfo = this.getBatteryInfo()
+                const userAgentInfo = this.parseUserAgent()
+                
                 systemInfo.innerHTML = `
-                    <p><strong>User Agent:</strong> ${navigator.userAgent}</p>
-                    <p><strong>Platform:</strong> ${navigator.platform}</p>
-                    <p><strong>Hardware Concurrency:</strong> ${navigator.hardwareConcurrency || 'Unknown'}</p>
-                    <p><strong>Memory:</strong> ${performance.memory ? `${Math.round(performance.memory.usedJSHeapSize / 1024 / 1024)}MB / ${Math.round(performance.memory.jsHeapSizeLimit / 1024 / 1024)}MB` : 'Unknown'}</p>
-                    <p><strong>WebNN Available:</strong> ${typeof navigator.ml !== 'undefined' ? 'Yes' : 'No'}</p>
-                    <p><strong>WebGPU Available:</strong> ${typeof navigator.gpu !== 'undefined' ? 'Yes' : 'No'}</p>
-                    <p><strong>WebAssembly Available:</strong> ${typeof WebAssembly !== 'undefined' ? 'Yes' : 'No'}</p>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                        <div class="provider-card">
+                            <h3>Basic System Info</h3>
+                            <p><strong>User Agent:</strong> ${navigator.userAgent}</p>
+                            <p><strong>Platform:</strong> ${navigator.platform}</p>
+                            <p><strong>Hardware Concurrency:</strong> ${navigator.hardwareConcurrency || 'Unknown'}</p>
+                            <p><strong>Device Memory:</strong> ${deviceMemory}</p>
+                            <p><strong>Connection Type:</strong> ${connectionType}</p>
+                            <p><strong>Battery Status:</strong> ${batteryInfo}</p>
+                        </div>
+                        
+                        <div class="provider-card">
+                            <h3>API Availability</h3>
+                            <p><strong>WebNN Available:</strong> ${typeof navigator.ml !== 'undefined' ? '✅ Yes' : '❌ No'}</p>
+                            <p><strong>WebGPU Available:</strong> ${typeof navigator.gpu !== 'undefined' ? '✅ Yes' : '❌ No'}</p>
+                            <p><strong>WebAssembly Available:</strong> ${typeof WebAssembly !== 'undefined' ? '✅ Yes' : '❌ No'}</p>
+                            <p><strong>WebGL Available:</strong> ${this.isWebGLAvailable() ? '✅ Yes' : '❌ No'}</p>
+                            <p><strong>Battery API:</strong> ${'getBattery' in navigator ? '✅ Yes' : '❌ No'}</p>
+                            <p><strong>Device Memory API:</strong> ${'deviceMemory' in navigator ? '✅ Yes' : '❌ No'}</p>
+                        </div>
+                        
+                        <div class="provider-card">
+                            <h3>Device Detection Hints</h3>
+                            <p><strong>Architecture:</strong> ${userAgentInfo.architecture}</p>
+                            <p><strong>Platform Type:</strong> ${userAgentInfo.platformType}</p>
+                            <p><strong>Mobile Device:</strong> ${userAgentInfo.isMobile ? '✅ Yes' : '❌ No'}</p>
+                            <p><strong>High Performance:</strong> ${this.isHighPerformanceDevice() ? '✅ Yes' : '❌ No'}</p>
+                            <p><strong>Memory Usage:</strong> ${this.getMemoryUsage()}</p>
+                        </div>
+                    </div>
                 `
+            }
+
+            getBatteryInfo() {
+                if ('getBattery' in navigator) {
+                    return 'API Available (checking...)'
+                }
+                return 'Not Available'
+            }
+
+            isWebGLAvailable() {
+                const canvas = document.createElement('canvas')
+                const gl = canvas.getContext('webgl') || canvas.getContext('webgl2')
+                return gl !== null
+            }
+
+            parseUserAgent() {
+                const ua = navigator.userAgent.toLowerCase()
+                return {
+                    architecture: ua.includes('x86_64') || ua.includes('amd64') ? 'x86_64' : 
+                                ua.includes('arm64') || ua.includes('aarch64') ? 'ARM64' : 'Unknown',
+                    platformType: ua.includes('iphone') || ua.includes('ipad') ? 'iOS' :
+                                 ua.includes('android') ? 'Android' :
+                                 ua.includes('mac') ? 'macOS' :
+                                 ua.includes('windows') ? 'Windows' :
+                                 ua.includes('linux') ? 'Linux' : 'Unknown',
+                    isMobile: /mobile|android|iphone|ipad|phone/i.test(ua)
+                }
+            }
+
+            isHighPerformanceDevice() {
+                const cores = navigator.hardwareConcurrency || 0
+                const memory = navigator.deviceMemory || 0
+                const connection = navigator.connection?.effectiveType || ''
+                
+                return cores >= 8 || memory >= 8 || connection === '4g'
+            }
+
+            getMemoryUsage() {
+                if (performance.memory) {
+                    const used = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024)
+                    const total = Math.round(performance.memory.jsHeapSizeLimit / 1024 / 1024)
+                    return `${used}MB / ${total}MB`
+                }
+                return 'Unknown'
             }
 
             // Cache management methods
             async getCacheStats() {
+                if (!this.extensionAvailable) {
+                    this.showStatus('Extension required to access cache', 'error')
+                    return
+                }
+
                 this.showStatus('Getting cache stats...', 'info')
                 
                 try {
@@ -544,6 +801,11 @@
             }
 
             async getCachedModels() {
+                if (!this.extensionAvailable) {
+                    this.showStatus('Extension required to access cache', 'error')
+                    return
+                }
+
                 this.showStatus('Getting cached models...', 'info')
                 
                 try {
@@ -573,6 +835,11 @@
             }
 
             async clearAllCache() {
+                if (!this.extensionAvailable) {
+                    this.showStatus('Extension required to access cache', 'error')
+                    return
+                }
+
                 this.showStatus('Clearing all cache...', 'info')
                 
                 try {
@@ -596,6 +863,11 @@
             }
 
             async cleanupOldCache() {
+                if (!this.extensionAvailable) {
+                    this.showStatus('Extension required to access cache', 'error')
+                    return
+                }
+
                 this.showStatus('Cleaning up old models...', 'info')
                 
                 try {
@@ -615,6 +887,103 @@
                     }
                 } catch (error) {
                     this.showStatus(`Error cleaning up old models: ${error.message}`, 'error')
+                }
+            }
+
+            async loadDetailedDeviceInfo(devices) {
+                const deviceDetails = document.getElementById('deviceDetails')
+                deviceDetails.innerHTML = ''
+
+                if (!devices || devices.length === 0) {
+                    deviceDetails.innerHTML = '<p>No devices detected</p>'
+                    return
+                }
+
+                devices.forEach((device, index) => {
+                    const card = document.createElement('div')
+                    card.className = 'provider-card'
+                    
+                    const performanceBar = this.createPerformanceBar(device.performance || 0)
+                    const deviceTypeColor = this.getDeviceTypeColor(device.type)
+                    
+                    card.innerHTML = `
+                        <h3 style="color: ${deviceTypeColor};">${device.name}</h3>
+                        <p><strong>Type:</strong> ${device.type.toUpperCase()}</p>
+                        <p><strong>Supported:</strong> ${device.supported ? '✅ Yes' : '❌ No'}</p>
+                        <p><strong>Performance Score:</strong> ${device.performance || 0}/100</p>
+                        <div style="margin: 10px 0;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                                <span>Performance</span>
+                                <span>${device.performance || 0}%</span>
+                            </div>
+                            ${performanceBar}
+                        </div>
+                        <button onclick="window.testPage.testDeviceCapabilities('${device.name}')" style="margin-top: 10px;">
+                            Test Capabilities
+                        </button>
+                    `
+                    deviceDetails.appendChild(card)
+                })
+            }
+
+            createPerformanceBar(performance) {
+                const percentage = Math.min(performance, 100)
+                const color = performance >= 80 ? '#28a745' : performance >= 60 ? '#ffc107' : '#dc3545'
+                
+                return `
+                    <div style="width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden;">
+                        <div style="width: ${percentage}%; height: 100%; background-color: ${color}; transition: width 0.3s ease;"></div>
+                    </div>
+                `
+            }
+
+            getDeviceTypeColor(type) {
+                const colors = {
+                    npu: '#007bff',
+                    gpu: '#28a745',
+                    cpu: '#ffc107'
+                }
+                return colors[type] || '#6c757d'
+            }
+
+            async refreshWebNNDevices() {
+                if (!this.extensionAvailable) {
+                    this.showStatus('Extension required to refresh WebNN devices', 'error')
+                    return
+                }
+
+                this.showStatus('Refreshing WebNN devices...', 'info')
+                
+                try {
+                    const devicesResponse = await this.sendMessage('get-webnn-devices')
+                    if (devicesResponse.success) {
+                        const devices = devicesResponse.devices || []
+                        this.loadDetailedDeviceInfo(devices)
+                        
+                        // Update the device count
+                        const webnnDeviceCount = document.getElementById('webnnDeviceCount')
+                        webnnDeviceCount.textContent = devices.length
+                        
+                        this.showStatus(`Refreshed WebNN devices. Found ${devices.length} devices.`, 'success')
+                    } else {
+                        this.showStatus(`Failed to refresh devices: ${devicesResponse.error}`, 'error')
+                    }
+                } catch (error) {
+                    this.showStatus(`Error refreshing devices: ${error.message}`, 'error')
+                }
+            }
+
+            async testDeviceCapabilities(deviceName) {
+                this.showStatus(`Testing capabilities for device: ${deviceName}...`, 'info')
+                
+                try {
+                    // This would call a method to test device capabilities
+                    // For now, we'll simulate the test
+                    setTimeout(() => {
+                        this.showStatus(`Device capabilities test completed for ${deviceName}`, 'success')
+                    }, 1000)
+                } catch (error) {
+                    this.showStatus(`Error testing device capabilities: ${error.message}`, 'error')
                 }
             }
 

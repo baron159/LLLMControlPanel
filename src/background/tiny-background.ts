@@ -19,6 +19,7 @@ try {
 
 // Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message: any, _sender: any, sendResponse: any) => {
+  console.log('Service Worker -- Received message:', message)
   if (message.type === 'test-model') {
     handleTestModel(message, sendResponse)
     return true // Keep message channel open for async response
@@ -86,6 +87,11 @@ chrome.runtime.onMessage.addListener((message: any, _sender: any, sendResponse: 
   
   if (message.type === 'get-preferred-webnn-device') {
     handleGetPreferredWebNNDevice(message, sendResponse)
+    return true
+  }
+  
+  if (message.type === 'ping') {
+    handlePing(message, sendResponse)
     return true
   }
 })
@@ -248,6 +254,14 @@ async function handleGetPreferredWebNNDevice(_message: any, sendResponse: (respo
       success: true, 
       device 
     })
+  } catch (error: any) {
+    sendResponse({ success: false, error: error.message })
+  }
+}
+
+async function handlePing(_message: any, sendResponse: (response: any) => void) {
+  try {
+    sendResponse({ success: true })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
   }

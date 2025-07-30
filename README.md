@@ -85,6 +85,14 @@ if (window.llmControlPanel) {
 
 ### API Reference
 
+The extension provides a comprehensive API that works without Chrome extension APIs:
+
+#### `window.llmControlPanel.isAvailable()`
+
+Checks if the extension is available and ready to use.
+
+- Returns: Promise<boolean> - Whether the extension is available
+
 #### `window.llmControlPanel.generateResponse(prompt, modelId)`
 
 Generates a response using the specified model.
@@ -100,6 +108,71 @@ Tests a specific model with a message.
 - `modelId` (string): The ID of the model to test
 - `message` (string): The test message
 - Returns: Promise<string> - The test response
+
+#### `window.llmControlPanel.loadModel(modelId, useWorker)`
+
+Loads a model for inference.
+
+- `modelId` (string): The ID of the model to load
+- `useWorker` (boolean): Whether to use a web worker (optional, default: false)
+- Returns: Promise<boolean> - Whether the model was loaded successfully
+
+#### `window.llmControlPanel.unloadModel(modelId, useWorker)`
+
+Unloads a model from memory.
+
+- `modelId` (string): The ID of the model to unload
+- `useWorker` (boolean): Whether the model was loaded with a worker (optional, default: false)
+- Returns: Promise<boolean> - Whether the model was unloaded successfully
+
+#### `window.llmControlPanel.getAvailableModels()`
+
+Gets the list of available models.
+
+- Returns: Promise<Array> - Array of available model configurations
+
+#### `window.llmControlPanel.getAvailableProviders()`
+
+Gets the list of available ONNX providers.
+
+- Returns: Promise<Array> - Array of available providers (webnn, webgpu, wasm)
+
+#### `window.llmControlPanel.getWebNNDevices()`
+
+Gets the list of available WebNN devices.
+
+- Returns: Promise<Array> - Array of available WebNN devices
+
+#### `window.llmControlPanel.getPreferredWebNNDevice()`
+
+Gets the preferred WebNN device for inference.
+
+- Returns: Promise<Object> - The preferred device configuration
+
+#### `window.llmControlPanel.getCacheStats()`
+
+Gets cache statistics.
+
+- Returns: Promise<Object> - Cache statistics including size and model count
+
+#### `window.llmControlPanel.getCachedModels()`
+
+Gets the list of cached models.
+
+- Returns: Promise<Array> - Array of cached model information
+
+#### `window.llmControlPanel.clearAllCachedModels()`
+
+Clears all cached models.
+
+- Returns: Promise<boolean> - Whether the operation was successful
+
+#### `window.llmControlPanel.cleanupOldCachedModels(maxAge)`
+
+Removes cached models older than the specified age.
+
+- `maxAge` (number): Maximum age in milliseconds
+- Returns: Promise<number> - Number of models removed
 
 ## Project Structure
 
