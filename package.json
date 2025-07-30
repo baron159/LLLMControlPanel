@@ -1,6 +1,6 @@
 {
   "name": "llm-control-panel",
-  "version": "0.1.0",
+  "version": "1.0.0.1003",
   "description": "Browser extension for LLM control using ONNX Runtime",
   "type": "module",
   "scripts": {
@@ -27,4 +27,4 @@
     "vite": "^7.0.6",
     "vite-plugin-web-extension": "^4.4.5"
   }
-} 
+}
