@@ -1,7 +1,8 @@
 // ONNX Worker - handles heavy ONNX operations
 import * as ort from 'onnxruntime-web'
-import { WebNNUtils } from '../utils/webnn-utils'
-import { ModelCache } from '../utils/model-cache'
+// import { WebNNUtils } from '../utils/webnn-utils'
+// import { ModelCache } from '../utils/model-cache'
+import { BaseONNXHandler, ONNXSession } from '../core/providers/onnx-provider'
 
 export interface ONNXWorkerConfig {
   executionProviders: string[]
@@ -15,70 +16,7 @@ export interface ONNXWorkerConfig {
   extra?: Record<string, any>
 }
 
-export interface ONNXSession {
-  session: ort.InferenceSession
-  modelId: string
-  isLoaded: boolean
-  provider: string
-  inputNames: string[]
-  outputNames: string[]
-}
-
-class ONNXWorker {
-  private sessions: Map<string, ONNXSession> = new Map()
-  private currentModelId: string | null = null
-  private availableProviders: string[] = []
-  private webnnUtils: WebNNUtils
-  private modelCache: ModelCache
-
-  constructor() {
-    this.webnnUtils = WebNNUtils.getInstance()
-    this.modelCache = ModelCache.getInstance()
-    this.initializeProviders()
-  }
-
-  private async initializeProviders(): Promise<void> {
-    try {
-      await this.webnnUtils.initialize()
-      
-      const availableProviders = ['webnn', 'webgpu', 'wasm']
-      console.log('Available ONNX providers:', availableProviders)
-      
-      this.availableProviders = this.getPreferredProviderOrder(availableProviders)
-      
-      ort.env.wasm.numThreads = navigator.hardwareConcurrency || 4
-      ort.env.wasm.simd = true
-      ort.env.wasm.proxy = true
-      
-      console.log('ONNX Worker initialized with providers:', this.availableProviders)
-    } catch (error) {
-      console.error('Failed to initialize ONNX providers:', error)
-      this.availableProviders = ['wasm']
-    }
-  }
-
-  private getPreferredProviderOrder(availableProviders: string[]): string[] {
-    const orderedProviders: string[] = []
-    
-    if (availableProviders.includes('webnn') && this.webnnUtils.isWebNNAvailable()) {
-      const preferredDevice = this.webnnUtils.getPreferredDevice()
-      if (preferredDevice) {
-        console.log(`WebNN available with preferred device: ${preferredDevice.name} (${preferredDevice.type})`)
-        orderedProviders.push('webnn')
-      }
-    }
-    
-    if (availableProviders.includes('webgpu')) {
-      orderedProviders.push('webgpu')
-    }
-    
-    if (availableProviders.includes('wasm')) {
-      orderedProviders.push('wasm')
-    }
-    
-    return orderedProviders.length > 0 ? orderedProviders : ['wasm']
-  }
-
+class ONNXWorker extends BaseONNXHandler {
   async loadModel(modelId: string, config?: ONNXWorkerConfig): Promise<boolean> {
     try {
       if (this.sessions.has(modelId) && this.sessions.get(modelId)?.isLoaded) {
@@ -158,17 +96,6 @@ class ONNXWorker {
     }
   }
 
-  private async createMockSession(_options: ort.InferenceSession.SessionOptions): Promise<ort.InferenceSession> {
-    // Create a mock session for testing purposes
-    return {
-      inputNames: ['input'],
-      outputNames: ['output'],
-      run: async (_feeds: any, _options?: any) => ({ output: new Float32Array([1]) }),
-      release: () => {},
-      dispose: () => {}
-    } as any
-  }
-
   async generateResponse(message: string, options?: {
     maxTokens?: number
     temperature?: number
@@ -220,62 +147,6 @@ class ONNXWorker {
     }
 
     return await session.session.run(input, options)
-  }
-
-  getCurrentModel(): string | null {
-    return this.currentModelId
-  }
-
-  getCurrentProvider(): string | null {
-    return this.sessions.get(this.currentModelId || '')?.provider || null
-  }
-
-  isModelLoaded(modelId: string): boolean {
-    return this.sessions.has(modelId) && this.sessions.get(modelId)?.isLoaded === true
-  }
-
-  getAvailableProviders(): string[] {
-    return [...this.availableProviders]
-  }
-
-  getWebNNDevices(): any[] {
-    return this.webnnUtils.getAvailableDevices()
-  }
-
-  getPreferredWebNNDevice(): any {
-    return this.webnnUtils.getPreferredDevice()
-  }
-
-  async getCacheStats(): Promise<any> {
-    return await this.modelCache.getCacheStats()
-  }
-
-  async getCachedModels(): Promise<any[]> {
-    return await this.modelCache.getCachedModels()
-  }
-
-  async isModelCached(modelId: string): Promise<boolean> {
-    return await this.modelCache.isModelCached(modelId)
-  }
-
-  async removeCachedModel(modelId: string): Promise<boolean> {
-    return await this.modelCache.removeCachedModel(modelId)
-  }
-
-  async clearAllCachedModels(): Promise<boolean> {
-    return await this.modelCache.clearAllCachedModels()
-  }
-
-  async cleanupOldCachedModels(maxAge?: number): Promise<number> {
-    return await this.modelCache.cleanupOldModels(maxAge)
-  }
-
-  async getCacheUsagePercentage(): Promise<number> {
-    return await this.modelCache.getCacheUsagePercentage()
-  }
-
-  getSessionInfo(modelId: string): ONNXSession | null {
-    return this.sessions.get(modelId) || null
   }
 
   async unloadModel(modelId: string): Promise<void> {

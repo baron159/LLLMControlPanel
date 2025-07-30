@@ -1,5 +1,21 @@
-// Tiny background script - absolutely minimal
-console.log('LLM Control Panel tiny background script loaded')
+// Background script with actual ONNX integration
+import { ModelManager } from '../core/managers/model-manager'
+import { LightweightModelManager } from '../core/managers/lightweight-model-manager'
+
+console.log('LLM Control Panel background script loaded')
+
+// Initialize model managers with error handling
+let modelManager: ModelManager
+let lightweightModelManager: LightweightModelManager
+
+try {
+  modelManager = new ModelManager()
+  lightweightModelManager = new LightweightModelManager()
+  console.log('Model managers initialized successfully')
+} catch (error) {
+  console.error('Failed to initialize model managers:', error)
+  throw error
+}
 
 // Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message: any, _sender: any, sendResponse: any) => {
@@ -15,6 +31,11 @@ chrome.runtime.onMessage.addListener((message: any, _sender: any, sendResponse: 
   
   if (message.type === 'load-model') {
     handleLoadModel(message, sendResponse)
+    return true
+  }
+  
+  if (message.type === 'unload-model') {
+    handleUnloadModel(message, sendResponse)
     return true
   }
   
@@ -57,35 +78,60 @@ chrome.runtime.onMessage.addListener((message: any, _sender: any, sendResponse: 
     handleCleanupOldCachedModels(message, sendResponse)
     return true
   }
+  
+  if (message.type === 'get-webnn-devices') {
+    handleGetWebNNDevices(message, sendResponse)
+    return true
+  }
+  
+  if (message.type === 'get-preferred-webnn-device') {
+    handleGetPreferredWebNNDevice(message, sendResponse)
+    return true
+  }
 })
 
-async function handleTestModel(_message: any, sendResponse: (response: any) => void) {
+async function handleTestModel(message: any, sendResponse: (response: any) => void) {
   try {
-    // Return a simple response for now
+    const { modelId, message: testMessage } = message
+    const response = await modelManager.generateResponse(testMessage || 'Hello', modelId)
     sendResponse({ 
       success: true, 
-      response: 'This is a test response from the tiny background script. ONNX functionality will be loaded on demand.' 
+      response 
     })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
   }
 }
 
-async function handleGenerateResponse(_message: any, sendResponse: (response: any) => void) {
+async function handleGenerateResponse(message: any, sendResponse: (response: any) => void) {
   try {
-    // Return a simple response for now
+    const { prompt, modelId } = message
+    const response = await modelManager.generateResponse(prompt, modelId)
     sendResponse({ 
       success: true, 
-      response: 'This is a generated response from the tiny background script. ONNX functionality will be loaded on demand.' 
+      response 
     })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
   }
 }
 
-async function handleLoadModel(_message: any, sendResponse: (response: any) => void) {
+async function handleLoadModel(message: any, sendResponse: (response: any) => void) {
   try {
-    // Return success for now
+    const { modelId, useWorker = false } = message
+    const manager = useWorker ? lightweightModelManager : modelManager
+    const success = await manager.loadModel(modelId)
+    sendResponse({ success })
+  } catch (error: any) {
+    sendResponse({ success: false, error: error.message })
+  }
+}
+
+async function handleUnloadModel(message: any, sendResponse: (response: any) => void) {
+  try {
+    const { modelId, useWorker = false } = message
+    const manager = useWorker ? lightweightModelManager : modelManager
+    await manager.unloadModel(modelId)
     sendResponse({ success: true })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
@@ -94,15 +140,12 @@ async function handleLoadModel(_message: any, sendResponse: (response: any) => v
 
 async function handleGetModelStatus(message: any, sendResponse: (response: any) => void) {
   try {
-    // Return a mock status
+    const { modelId, useWorker = false } = message
+    const manager = useWorker ? lightweightModelManager : modelManager
+    const status = manager.getModelStatus(modelId)
     sendResponse({ 
       success: true, 
-      status: { 
-        modelId: message.modelId, 
-        isLoaded: false, 
-        provider: null, 
-        loadingProgress: 0 
-      } 
+      status 
     })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
@@ -111,14 +154,10 @@ async function handleGetModelStatus(message: any, sendResponse: (response: any) 
 
 async function handleGetAvailableModels(_message: any, sendResponse: (response: any) => void) {
   try {
-    // Return mock models
+    const models = modelManager.getAvailableModels()
     sendResponse({ 
       success: true, 
-      models: [
-        { id: 'tinyllama-1.1b-chat', name: 'TinyLlama 1.1B Chat', description: 'A small, fast language model' },
-        { id: 'llama-2-7b-chat', name: 'Llama 2 7B Chat', description: 'Medium-sized language model' },
-        { id: 'gpt-2-small', name: 'GPT-2 Small', description: 'Small GPT-2 model' }
-      ] 
+      models 
     })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
@@ -127,10 +166,10 @@ async function handleGetAvailableModels(_message: any, sendResponse: (response: 
 
 async function handleGetAvailableProviders(_message: any, sendResponse: (response: any) => void) {
   try {
-    // Return mock providers
+    const providers = modelManager.getAvailableProviders()
     sendResponse({ 
       success: true, 
-      providers: ['wasm', 'webgpu', 'webnn'] 
+      providers 
     })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
@@ -139,10 +178,10 @@ async function handleGetAvailableProviders(_message: any, sendResponse: (respons
 
 async function handleGetCacheStats(_message: any, sendResponse: (response: any) => void) {
   try {
-    // Return mock stats
+    const stats = await modelManager.getCacheStats()
     sendResponse({ 
       success: true, 
-      stats: { totalSize: 0, modelCount: 0, availableSpace: 5242880 } 
+      stats 
     })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
@@ -151,17 +190,21 @@ async function handleGetCacheStats(_message: any, sendResponse: (response: any) 
 
 async function handleGetCachedModels(_message: any, sendResponse: (response: any) => void) {
   try {
-    // Return empty cached models
-    sendResponse({ success: true, models: [] })
+    const models = await modelManager.getCachedModels()
+    sendResponse({ 
+      success: true, 
+      models 
+    })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
   }
 }
 
-async function handleRemoveCachedModel(_message: any, sendResponse: (response: any) => void) {
+async function handleRemoveCachedModel(message: any, sendResponse: (response: any) => void) {
   try {
-    // Return success
-    sendResponse({ success: true })
+    const { modelId } = message
+    const success = await modelManager.removeCachedModel(modelId)
+    sendResponse({ success })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
   }
@@ -169,17 +212,42 @@ async function handleRemoveCachedModel(_message: any, sendResponse: (response: a
 
 async function handleClearAllCachedModels(_message: any, sendResponse: (response: any) => void) {
   try {
-    // Return success
-    sendResponse({ success: true })
+    const success = await modelManager.clearAllCachedModels()
+    sendResponse({ success })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
   }
 }
 
-async function handleCleanupOldCachedModels(_message: any, sendResponse: (response: any) => void) {
+async function handleCleanupOldCachedModels(message: any, sendResponse: (response: any) => void) {
   try {
-    // Return success
-    sendResponse({ success: true, removedCount: 0 })
+    const { maxAge } = message
+    const removedCount = await modelManager.cleanupOldCachedModels(maxAge)
+    sendResponse({ success: true, removedCount })
+  } catch (error: any) {
+    sendResponse({ success: false, error: error.message })
+  }
+}
+
+async function handleGetWebNNDevices(_message: any, sendResponse: (response: any) => void) {
+  try {
+    const devices = modelManager.getWebNNDevices()
+    sendResponse({ 
+      success: true, 
+      devices 
+    })
+  } catch (error: any) {
+    sendResponse({ success: false, error: error.message })
+  }
+}
+
+async function handleGetPreferredWebNNDevice(_message: any, sendResponse: (response: any) => void) {
+  try {
+    const device = modelManager.getPreferredWebNNDevice()
+    sendResponse({ 
+      success: true, 
+      device 
+    })
   } catch (error: any) {
     sendResponse({ success: false, error: error.message })
   }

@@ -1,7 +1,7 @@
 {
   "name": "LLM Control Panel",
   "description": "Browser extension for LLM control using ONNX Runtime",
-  "version": "1.0.0.1003",
+  "version": "1.0.0.1018",
   "manifest_version": 3,
   "permissions": [
     "storage",
@@ -19,7 +19,8 @@
     "default_popup": "src/popup/index.html"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {

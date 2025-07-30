@@ -81,5 +81,13 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['onnxruntime-web']
+  },
+  define: {
+    // Ensure global variables are available in service worker context
+    global: 'globalThis'
+  },
+  // Ensure ES modules work properly in service worker
+  esbuild: {
+    target: 'es2020'
   }
 }) 

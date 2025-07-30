@@ -196,6 +196,15 @@ export class ModelManager {
     return this.onnxProvider.getAvailableProviders()
   }
 
+  // WebNN methods
+  getWebNNDevices(): any[] {
+    return this.onnxProvider.getWebNNDevices()
+  }
+
+  getPreferredWebNNDevice(): any {
+    return this.onnxProvider.getPreferredWebNNDevice()
+  }
+
   // Cache management methods
   async getCacheStats(): Promise<any> {
     return await this.onnxProvider.getCacheStats()

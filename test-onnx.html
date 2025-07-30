@@ -124,12 +124,24 @@
             margin: 10px 0;
             white-space: pre-wrap;
         }
+        .extension-status {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>ONNX Runtime Web Test</h1>
         <p>This page demonstrates the ONNX Runtime Web integration with provider priority: WebNN (NPU/GPU) → WebGPU → WASM</p>
+
+        <div id="extensionStatus" class="extension-status" style="display: none;">
+            <!-- Extension status will be shown here -->
+        </div>
 
         <div class="section">
             <h2>Provider Information</h2>
@@ -169,6 +181,9 @@
                 </select>
                 <button id="loadModelBtn">Load Model</button>
                 <button id="unloadModelBtn">Unload Model</button>
+                <label>
+                    <input type="checkbox" id="useWorkerCheck"> Use Web Worker
+                </label>
             </div>
             <div id="modelStatus" class="status info" style="display: none;">
                 <!-- Model status will be shown here -->
@@ -209,20 +224,66 @@
     </div>
 
     <script type="module">
-        // This is a demo script that would normally interact with the extension
-        // In a real implementation, this would communicate with the background script
-        
         class ONNXTestPage {
             constructor() {
                 this.initializeUI()
+                this.checkExtensionAvailability()
                 this.checkProviders()
                 this.loadSystemInfo()
             }
 
-            initializeUI() {
-                // Initialize model list
-                this.updateModelList()
+            async checkExtensionAvailability() {
+                const statusDiv = document.getElementById('extensionStatus')
                 
+                try {
+                    // Check if extension is available
+                    const response = await this.sendMessage('get-available-models')
+                    if (response.success) {
+                        statusDiv.style.display = 'block'
+                        statusDiv.innerHTML = `
+                            <strong>✅ Extension Available</strong><br>
+                            LLM Control Panel extension is loaded and ready to use.
+                        `
+                        statusDiv.className = 'extension-status'
+                        statusDiv.style.backgroundColor = '#d4edda'
+                        statusDiv.style.color = '#155724'
+                        statusDiv.style.borderColor = '#c3e6cb'
+                        
+                        // Load models after extension is confirmed available
+                        this.updateModelList()
+                    } else {
+                        throw new Error('Extension not responding')
+                    }
+                } catch (error) {
+                    statusDiv.style.display = 'block'
+                    statusDiv.innerHTML = `
+                        <strong>❌ Extension Not Available</strong><br>
+                        Please install and enable the LLM Control Panel extension to use this test page.
+                    `
+                    statusDiv.className = 'extension-status'
+                    statusDiv.style.backgroundColor = '#f8d7da'
+                    statusDiv.style.color = '#721c24'
+                    statusDiv.style.borderColor = '#f5c6cb'
+                }
+            }
+
+            async sendMessage(type, data = {}) {
+                return new Promise((resolve, reject) => {
+                    try {
+                        chrome.runtime.sendMessage({ type, ...data }, (response) => {
+                            if (chrome.runtime.lastError) {
+                                reject(new Error(chrome.runtime.lastError.message))
+                            } else {
+                                resolve(response)
+                            }
+                        })
+                    } catch (error) {
+                        reject(error)
+                    }
+                })
+            }
+
+            initializeUI() {
                 // Set up event listeners
                 document.getElementById('loadModelBtn').addEventListener('click', () => this.loadModel())
                 document.getElementById('unloadModelBtn').addEventListener('click', () => this.unloadModel())
@@ -236,111 +297,114 @@
             }
 
             async checkProviders() {
-                // Check WebNN availability
-                const webnnStatus = document.getElementById('webnnStatus')
-                const webnnDevice = document.getElementById('webnnDevice')
-                const webnnDevices = document.getElementById('webnnDevices')
+                try {
+                    // Get available providers from extension
+                    const providersResponse = await this.sendMessage('get-available-providers')
+                    const providers = providersResponse.success ? providersResponse.providers : []
+                    
+                    // Check WebNN availability
+                    const webnnStatus = document.getElementById('webnnStatus')
+                    const webnnDevice = document.getElementById('webnnDevice')
+                    const webnnDevices = document.getElementById('webnnDevices')
 
-                                 if (typeof navigator.ml !== 'undefined') {
-                     webnnStatus.textContent = 'Available'
-                     webnnStatus.style.color = 'green'
-                     
-                     // Mock device detection
-                     webnnDevice.textContent = 'NPU (Qualcomm)'
-                     webnnDevices.textContent = 'NPU, GPU, CPU'
-                 } else {
-                     webnnStatus.textContent = 'Not Available'
-                     webnnStatus.style.color = 'red'
-                 }
+                    if (providers.includes('webnn')) {
+                        webnnStatus.textContent = 'Available'
+                        webnnStatus.style.color = 'green'
+                        
+                        try {
+                            const devicesResponse = await this.sendMessage('get-webnn-devices')
+                            const devices = devicesResponse.success ? devicesResponse.devices : []
+                            webnnDevices.textContent = devices.length > 0 ? devices.map(d => d.name).join(', ') : 'None detected'
+                            
+                            const preferredResponse = await this.sendMessage('get-preferred-webnn-device')
+                            const preferredDevice = preferredResponse.success ? preferredResponse.device : null
+                            webnnDevice.textContent = preferredDevice ? `${preferredDevice.name} (${preferredDevice.type})` : 'None'
+                        } catch (error) {
+                            webnnDevices.textContent = 'Error detecting devices'
+                            webnnDevice.textContent = 'Error'
+                        }
+                    } else {
+                        webnnStatus.textContent = 'Not Available'
+                        webnnStatus.style.color = 'red'
+                    }
 
-                 // Check WebGPU availability
-                 const webgpuStatus = document.getElementById('webgpuStatus')
-                 const webgpuAdapter = document.getElementById('webgpuAdapter')
+                    // Check WebGPU availability
+                    const webgpuStatus = document.getElementById('webgpuStatus')
+                    const webgpuAdapter = document.getElementById('webgpuAdapter')
 
-                 if (navigator.gpu) {
-                     try {
-                         const adapter = await navigator.gpu.requestAdapter()
-                         if (adapter) {
-                             webgpuStatus.textContent = 'Available'
-                             webgpuStatus.style.color = 'green'
-                             webgpuAdapter.textContent = adapter.name || 'Unknown GPU'
-                         } else {
-                             webgpuStatus.textContent = 'No Compatible GPU'
-                             webgpuStatus.style.color = 'orange'
-                         }
-                     } catch (error) {
-                         webgpuStatus.textContent = 'Error'
-                         webgpuStatus.style.color = 'red'
-                     }
-                 } else {
-                     webgpuStatus.textContent = 'Not Available'
-                     webgpuStatus.style.color = 'red'
-                 }
+                    if (providers.includes('webgpu')) {
+                        webgpuStatus.textContent = 'Available'
+                        webgpuStatus.style.color = 'green'
+                        
+                        if (navigator.gpu) {
+                            try {
+                                const adapter = await navigator.gpu.requestAdapter()
+                                webgpuAdapter.textContent = adapter ? (adapter.name || 'Unknown GPU') : 'No compatible GPU'
+                            } catch (error) {
+                                webgpuAdapter.textContent = 'Error detecting GPU'
+                            }
+                        } else {
+                            webgpuAdapter.textContent = 'WebGPU not supported'
+                        }
+                    } else {
+                        webgpuStatus.textContent = 'Not Available'
+                        webgpuStatus.style.color = 'red'
+                    }
 
-                // Check WASM availability
-                const wasmStatus = document.getElementById('wasmStatus')
-                const wasmThreads = document.getElementById('wasmThreads')
+                    // Check WASM availability
+                    const wasmStatus = document.getElementById('wasmStatus')
+                    const wasmThreads = document.getElementById('wasmThreads')
 
-                if (typeof WebAssembly !== 'undefined') {
-                    wasmStatus.textContent = 'Available'
-                    wasmStatus.style.color = 'green'
-                    wasmThreads.textContent = navigator.hardwareConcurrency || 'Unknown'
-                } else {
-                    wasmStatus.textContent = 'Not Available'
-                    wasmStatus.style.color = 'red'
+                    if (providers.includes('wasm')) {
+                        wasmStatus.textContent = 'Available'
+                        wasmStatus.style.color = 'green'
+                        wasmThreads.textContent = navigator.hardwareConcurrency || 'Unknown'
+                    } else {
+                        wasmStatus.textContent = 'Not Available'
+                        wasmStatus.style.color = 'red'
+                    }
+                } catch (error) {
+                    console.error('Error checking providers:', error)
+                    this.showStatus('Error checking providers: ' + error.message, 'error')
                 }
             }
 
-            updateModelList() {
-                const models = [
-                    {
-                        id: 'tinyllama-1.1b-chat',
-                        name: 'TinyLlama 1.1B Chat',
-                        description: 'A small, fast language model for chat applications',
-                        size: '1.1B parameters',
-                        provider: 'webnn'
-                    },
-                    {
-                        id: 'llama-2-7b-chat',
-                        name: 'Llama 2 7B Chat',
-                        description: 'Medium-sized language model with good performance',
-                        size: '7B parameters',
-                        provider: 'webgpu'
-                    },
-                    {
-                        id: 'gpt-2-small',
-                        name: 'GPT-2 Small',
-                        description: 'Small GPT-2 model for text generation',
-                        size: '117M parameters',
-                        provider: 'wasm'
+            async updateModelList() {
+                try {
+                    const response = await this.sendMessage('get-available-models')
+                    if (!response.success) {
+                        throw new Error(response.error || 'Failed to get models')
                     }
-                ]
 
-                const modelList = document.getElementById('modelList')
-                modelList.innerHTML = ''
+                    const models = response.models
+                    const modelList = document.getElementById('modelList')
+                    modelList.innerHTML = ''
 
-                models.forEach(model => {
-                    const card = document.createElement('div')
-                    card.className = 'model-card'
-                    card.innerHTML = `
-                        <h4>${model.name}</h4>
-                        <p>${model.description}</p>
-                        <p><strong>Size:</strong> ${model.size}</p>
-                        <p><strong>Provider:</strong> ${model.provider}</p>
-                        <button onclick="window.testPage.loadSpecificModel('${model.id}')">Load</button>
-                    `
-                    modelList.appendChild(card)
-                })
+                    models.forEach(model => {
+                        const card = document.createElement('div')
+                        card.className = 'model-card'
+                        card.innerHTML = `
+                            <h4>${model.name}</h4>
+                            <p>${model.description}</p>
+                            <p><strong>ID:</strong> ${model.id}</p>
+                            <button onclick="window.testPage.loadSpecificModel('${model.id}')">Load</button>
+                        `
+                        modelList.appendChild(card)
+                    })
 
-                // Update select dropdown
-                const select = document.getElementById('modelSelect')
-                select.innerHTML = '<option value="">Choose a model...</option>'
-                models.forEach(model => {
-                    const option = document.createElement('option')
-                    option.value = model.id
-                    option.textContent = model.name
-                    select.appendChild(option)
-                })
+                    // Update select dropdown
+                    const select = document.getElementById('modelSelect')
+                    select.innerHTML = '<option value="">Choose a model...</option>'
+                    models.forEach(model => {
+                        const option = document.createElement('option')
+                        option.value = model.id
+                        option.textContent = model.name
+                        select.appendChild(option)
+                    })
+                } catch (error) {
+                    console.error('Error loading models:', error)
+                    this.showStatus('Error loading models: ' + error.message, 'error')
+                }
             }
 
             async loadModel() {
@@ -350,213 +414,220 @@
                     return
                 }
 
+                const useWorker = document.getElementById('useWorkerCheck').checked
                 this.showStatus(`Loading model: ${modelId}...`, 'info')
                 
-                // Simulate loading process
-                await this.simulateLoading(modelId)
-                
-                this.showStatus(`Model ${modelId} loaded successfully!`, 'success')
+                try {
+                    const response = await this.sendMessage('load-model', { modelId, useWorker })
+                    if (response.success) {
+                        this.showStatus(`Model ${modelId} loaded successfully!`, 'success')
+                    } else {
+                        this.showStatus(`Failed to load model: ${response.error}`, 'error')
+                    }
+                } catch (error) {
+                    this.showStatus(`Error loading model: ${error.message}`, 'error')
+                }
             }
 
-                         async loadSpecificModel(modelId) {
-                 this.showStatus(`Loading model: ${modelId}...`, 'info')
-                 
-                 // Simulate loading process
-                 await this.simulateLoading(modelId)
-                 
-                 this.showStatus(`Model ${modelId} loaded successfully!`, 'success')
-             }
+            async loadSpecificModel(modelId) {
+                const useWorker = document.getElementById('useWorkerCheck').checked
+                this.showStatus(`Loading model: ${modelId}...`, 'info')
+                
+                try {
+                    const response = await this.sendMessage('load-model', { modelId, useWorker })
+                    if (response.success) {
+                        this.showStatus(`Model ${modelId} loaded successfully!`, 'success')
+                    } else {
+                        this.showStatus(`Failed to load model: ${response.error}`, 'error')
+                    }
+                } catch (error) {
+                    this.showStatus(`Error loading model: ${error.message}`, 'error')
+                }
+            }
 
-             async simulateLoading(modelId) {
-                 const statusDiv = document.getElementById('modelStatus')
-                 statusDiv.style.display = 'block'
-                 
-                 // Simulate progress
-                 for (let i = 0; i <= 100; i += 10) {
-                     statusDiv.innerHTML = `
-                         <div>Loading ${modelId}...</div>
-                         <div class="progress-bar">
-                             <div class="progress-fill" style="width: ${i}%"></div>
-                         </div>
-                         <div>${i}% complete</div>
-                     `
-                     await new Promise(resolve => setTimeout(resolve, 200))
-                 }
-             }
+            async unloadModel() {
+                const modelId = document.getElementById('modelSelect').value
+                if (!modelId) {
+                    this.showStatus('Please select a model first', 'error')
+                    return
+                }
 
-             async unloadModel() {
-                 const modelId = document.getElementById('modelSelect').value
-                 if (!modelId) {
-                     this.showStatus('Please select a model first', 'error')
-                     return
-                 }
+                const useWorker = document.getElementById('useWorkerCheck').checked
+                this.showStatus(`Unloading model: ${modelId}...`, 'info')
+                
+                try {
+                    const response = await this.sendMessage('unload-model', { modelId, useWorker })
+                    if (response.success) {
+                        this.showStatus(`Model ${modelId} unloaded successfully!`, 'success')
+                    } else {
+                        this.showStatus(`Failed to unload model: ${response.error}`, 'error')
+                    }
+                } catch (error) {
+                    this.showStatus(`Error unloading model: ${error.message}`, 'error')
+                }
+            }
 
-                 this.showStatus(`Unloading model: ${modelId}...`, 'info')
-                 
-                 // Simulate unloading
-                 await new Promise(resolve => setTimeout(resolve, 1000))
-                 
-                 this.showStatus(`Model ${modelId} unloaded successfully!`, 'success')
-             }
+            async generateResponse() {
+                const input = document.getElementById('testInput').value
+                if (!input.trim()) {
+                    this.showStatus('Please enter a message', 'error')
+                    return
+                }
 
-             async generateResponse() {
-                 const input = document.getElementById('testInput').value
-                 if (!input.trim()) {
-                     this.showStatus('Please enter a message', 'error')
-                     return
-                 }
+                const modelId = document.getElementById('modelSelect').value
+                if (!modelId) {
+                    this.showStatus('Please select a model first', 'error')
+                    return
+                }
 
-                 const modelId = document.getElementById('modelSelect').value
-                 if (!modelId) {
-                     this.showStatus('Please select a model first', 'error')
-                     return
-                 }
+                this.showStatus('Generating response...', 'info')
+                
+                try {
+                    const response = await this.sendMessage('generate-response', { prompt: input, modelId })
+                    if (response.success) {
+                        const responseArea = document.getElementById('responseArea')
+                        responseArea.style.display = 'block'
+                        responseArea.textContent = response.response
+                        this.showStatus('Response generated successfully!', 'success')
+                    } else {
+                        this.showStatus(`Failed to generate response: ${response.error}`, 'error')
+                    }
+                } catch (error) {
+                    this.showStatus(`Error generating response: ${error.message}`, 'error')
+                }
+            }
 
-                 this.showStatus('Generating response...', 'info')
-                 
-                 // Simulate inference
-                 await new Promise(resolve => setTimeout(resolve, 2000))
-                 
-                 // Mock response based on provider
-                 const responses = {
-                     'tinyllama-1.1b-chat': `This response was generated using WebNN acceleration for optimal performance. (Model: ${modelId}, Provider: webnn)`,
-                     'llama-2-7b-chat': `This response was generated using WebGPU acceleration for high-performance inference. (Model: ${modelId}, Provider: webgpu)`,
-                     'gpt-2-small': `This response was generated using WebAssembly for cross-platform compatibility. (Model: ${modelId}, Provider: wasm)`
-                 }
-                 
-                 const response = responses[modelId] || `Generated response for: "${input}" (Model: ${modelId})`
-                 
-                 const responseArea = document.getElementById('responseArea')
-                 responseArea.style.display = 'block'
-                 responseArea.textContent = response
-                 
-                 this.showStatus('Response generated successfully!', 'success')
-             }
+            showStatus(message, type) {
+                const statusDiv = document.getElementById('modelStatus')
+                statusDiv.style.display = 'block'
+                statusDiv.className = `status ${type}`
+                statusDiv.textContent = message
+            }
 
-             showStatus(message, type) {
-                 const statusDiv = document.getElementById('modelStatus')
-                 statusDiv.style.display = 'block'
-                 statusDiv.className = `status ${type}`
-                 statusDiv.textContent = message
-             }
+            loadSystemInfo() {
+                const systemInfo = document.getElementById('systemInfo')
+                systemInfo.innerHTML = `
+                    <p><strong>User Agent:</strong> ${navigator.userAgent}</p>
+                    <p><strong>Platform:</strong> ${navigator.platform}</p>
+                    <p><strong>Hardware Concurrency:</strong> ${navigator.hardwareConcurrency || 'Unknown'}</p>
+                    <p><strong>Memory:</strong> ${performance.memory ? `${Math.round(performance.memory.usedJSHeapSize / 1024 / 1024)}MB / ${Math.round(performance.memory.jsHeapSizeLimit / 1024 / 1024)}MB` : 'Unknown'}</p>
+                    <p><strong>WebNN Available:</strong> ${typeof navigator.ml !== 'undefined' ? 'Yes' : 'No'}</p>
+                    <p><strong>WebGPU Available:</strong> ${typeof navigator.gpu !== 'undefined' ? 'Yes' : 'No'}</p>
+                    <p><strong>WebAssembly Available:</strong> ${typeof WebAssembly !== 'undefined' ? 'Yes' : 'No'}</p>
+                `
+            }
 
-             loadSystemInfo() {
-                 const systemInfo = document.getElementById('systemInfo')
-                 systemInfo.innerHTML = `
-                     <p><strong>User Agent:</strong> ${navigator.userAgent}</p>
-                     <p><strong>Platform:</strong> ${navigator.platform}</p>
-                     <p><strong>Hardware Concurrency:</strong> ${navigator.hardwareConcurrency || 'Unknown'}</p>
-                     <p><strong>Memory:</strong> ${performance.memory ? `${Math.round(performance.memory.usedJSHeapSize / 1024 / 1024)}MB / ${Math.round(performance.memory.jsHeapSizeLimit / 1024 / 1024)}MB` : 'Unknown'}</p>
-                     <p><strong>WebNN Available:</strong> ${typeof navigator.ml !== 'undefined' ? 'Yes' : 'No'}</p>
-                     <p><strong>WebGPU Available:</strong> ${typeof navigator.gpu !== 'undefined' ? 'Yes' : 'No'}</p>
-                                      <p><strong>WebAssembly Available:</strong> ${typeof WebAssembly !== 'undefined' ? 'Yes' : 'No'}</p>
-                 `
-             }
+            // Cache management methods
+            async getCacheStats() {
+                this.showStatus('Getting cache stats...', 'info')
+                
+                try {
+                    const response = await this.sendMessage('get-cache-stats')
+                    if (response.success) {
+                        const stats = response.stats
+                        const cacheInfo = document.getElementById('cacheInfo')
+                        cacheInfo.style.display = 'block'
+                        cacheInfo.className = 'status success'
+                        cacheInfo.innerHTML = `
+                            <h3>Cache Statistics</h3>
+                            <p><strong>Total Size:</strong> ${this.formatBytes(stats.totalSize || 0)}</p>
+                            <p><strong>Model Count:</strong> ${stats.modelCount || 0}</p>
+                            <p><strong>Available Space:</strong> ${this.formatBytes(stats.availableSpace || 0)}</p>
+                            <p><strong>Usage:</strong> ${Math.round(((stats.totalSize || 0) / (5 * 1024 * 1024)) * 100)}%</p>
+                        `
+                    } else {
+                        this.showStatus(`Failed to get cache stats: ${response.error}`, 'error')
+                    }
+                } catch (error) {
+                    this.showStatus(`Error getting cache stats: ${error.message}`, 'error')
+                }
+            }
 
-             // Cache management methods
-             async getCacheStats() {
-                 this.showStatus('Getting cache stats...', 'info')
-                 
-                 // Simulate cache stats
-                 const stats = {
-                     totalSize: 2048576, // 2MB
-                     modelCount: 2,
-                     availableSpace: 3145728 // 3MB remaining
-                 }
-                 
-                 const cacheInfo = document.getElementById('cacheInfo')
-                 cacheInfo.style.display = 'block'
-                 cacheInfo.className = 'status success'
-                 cacheInfo.innerHTML = `
-                     <h3>Cache Statistics</h3>
-                     <p><strong>Total Size:</strong> ${this.formatBytes(stats.totalSize)}</p>
-                     <p><strong>Model Count:</strong> ${stats.modelCount}</p>
-                     <p><strong>Available Space:</strong> ${this.formatBytes(stats.availableSpace)}</p>
-                     <p><strong>Usage:</strong> ${Math.round((stats.totalSize / (5 * 1024 * 1024)) * 100)}%</p>
-                 `
-             }
+            async getCachedModels() {
+                this.showStatus('Getting cached models...', 'info')
+                
+                try {
+                    const response = await this.sendMessage('get-cached-models')
+                    if (response.success) {
+                        const models = response.models || []
+                        const cacheInfo = document.getElementById('cacheInfo')
+                        cacheInfo.style.display = 'block'
+                        cacheInfo.className = 'status success'
+                        cacheInfo.innerHTML = `
+                            <h3>Cached Models</h3>
+                            ${models.length > 0 ? models.map(model => `
+                                <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+                                    <p><strong>${model.name || model.id}</strong></p>
+                                    <p>Size: ${this.formatBytes(model.size || 0)}</p>
+                                    <p>Provider: ${model.provider || 'Unknown'}</p>
+                                    <p>Cached: ${model.timestamp ? new Date(model.timestamp).toLocaleString() : 'Unknown'}</p>
+                                </div>
+                            `).join('') : '<p>No cached models found.</p>'}
+                        `
+                    } else {
+                        this.showStatus(`Failed to get cached models: ${response.error}`, 'error')
+                    }
+                } catch (error) {
+                    this.showStatus(`Error getting cached models: ${error.message}`, 'error')
+                }
+            }
 
-             async getCachedModels() {
-                 this.showStatus('Getting cached models...', 'info')
-                 
-                 // Simulate cached models
-                 const models = [
-                     {
-                         id: 'tinyllama-1.1b-chat',
-                         name: 'TinyLlama 1.1B Chat',
-                         size: 1048576, // 1MB
-                         provider: 'webnn',
-                         timestamp: Date.now() - 86400000 // 1 day ago
-                     },
-                     {
-                         id: 'gpt-2-small',
-                         name: 'GPT-2 Small',
-                         size: 1000000, // ~1MB
-                         provider: 'wasm',
-                         timestamp: Date.now() - 172800000 // 2 days ago
-                     }
-                 ]
-                 
-                 const cacheInfo = document.getElementById('cacheInfo')
-                 cacheInfo.style.display = 'block'
-                 cacheInfo.className = 'status success'
-                 cacheInfo.innerHTML = `
-                     <h3>Cached Models</h3>
-                     ${models.map(model => `
-                         <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 5px;">
-                             <p><strong>${model.name}</strong></p>
-                             <p>Size: ${this.formatBytes(model.size)}</p>
-                             <p>Provider: ${model.provider}</p>
-                             <p>Cached: ${new Date(model.timestamp).toLocaleString()}</p>
-                         </div>
-                     `).join('')}
-                 `
-             }
+            async clearAllCache() {
+                this.showStatus('Clearing all cache...', 'info')
+                
+                try {
+                    const response = await this.sendMessage('clear-all-cached-models')
+                    if (response.success) {
+                        this.showStatus('All cached models cleared successfully!', 'success')
+                        
+                        const cacheInfo = document.getElementById('cacheInfo')
+                        cacheInfo.style.display = 'block'
+                        cacheInfo.className = 'status success'
+                        cacheInfo.innerHTML = `
+                            <h3>Cache Cleared</h3>
+                            <p>All cached models have been removed.</p>
+                        `
+                    } else {
+                        this.showStatus(`Failed to clear cache: ${response.error}`, 'error')
+                    }
+                } catch (error) {
+                    this.showStatus(`Error clearing cache: ${error.message}`, 'error')
+                }
+            }
 
-             async clearAllCache() {
-                 this.showStatus('Clearing all cache...', 'info')
-                 
-                 // Simulate clearing
-                 await new Promise(resolve => setTimeout(resolve, 1000))
-                 
-                 this.showStatus('All cached models cleared successfully!', 'success')
-                 
-                 const cacheInfo = document.getElementById('cacheInfo')
-                 cacheInfo.style.display = 'block'
-                 cacheInfo.className = 'status success'
-                 cacheInfo.innerHTML = `
-                     <h3>Cache Cleared</h3>
-                     <p>All cached models have been removed.</p>
-                 `
-             }
+            async cleanupOldCache() {
+                this.showStatus('Cleaning up old models...', 'info')
+                
+                try {
+                    const response = await this.sendMessage('cleanup-old-cached-models', { maxAge: 7 * 24 * 60 * 60 * 1000 }) // 7 days
+                    if (response.success) {
+                        this.showStatus(`Old models cleaned up successfully! Removed ${response.removedCount || 0} models.`, 'success')
+                        
+                        const cacheInfo = document.getElementById('cacheInfo')
+                        cacheInfo.style.display = 'block'
+                        cacheInfo.className = 'status success'
+                        cacheInfo.innerHTML = `
+                            <h3>Cleanup Complete</h3>
+                            <p>Old cached models have been removed. Removed ${response.removedCount || 0} models.</p>
+                        `
+                    } else {
+                        this.showStatus(`Failed to cleanup old models: ${response.error}`, 'error')
+                    }
+                } catch (error) {
+                    this.showStatus(`Error cleaning up old models: ${error.message}`, 'error')
+                }
+            }
 
-             async cleanupOldCache() {
-                 this.showStatus('Cleaning up old models...', 'info')
-                 
-                 // Simulate cleanup
-                 await new Promise(resolve => setTimeout(resolve, 1000))
-                 
-                 this.showStatus('Old models cleaned up successfully!', 'success')
-                 
-                 const cacheInfo = document.getElementById('cacheInfo')
-                 cacheInfo.style.display = 'block'
-                 cacheInfo.className = 'status success'
-                 cacheInfo.innerHTML = `
-                     <h3>Cleanup Complete</h3>
-                     <p>Old cached models have been removed.</p>
-                 `
-             }
-
-             formatBytes(bytes) {
-                 if (bytes === 0) return '0 Bytes'
-                 
-                 const k = 1024
-                 const sizes = ['Bytes', 'KB', 'MB', 'GB']
-                 const i = Math.floor(Math.log(bytes) / Math.log(k))
-                 
-                 return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-             }
-         }
+            formatBytes(bytes) {
+                if (bytes === 0) return '0 Bytes'
+                
+                const k = 1024
+                const sizes = ['Bytes', 'KB', 'MB', 'GB']
+                const i = Math.floor(Math.log(bytes) / Math.log(k))
+                
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+            }
+        }
 
         // Initialize the test page
         window.testPage = new ONNXTestPage()
