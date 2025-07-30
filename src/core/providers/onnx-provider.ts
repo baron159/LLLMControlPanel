@@ -83,6 +83,15 @@ export interface ONNXSession {
   outputNames: string[]
 }
 
+// Model URLs for downloading actual models
+// Note: These are placeholder URLs. In a real implementation, you would need actual ONNX model URLs
+const MODEL_URLS: Record<string, string> = {
+  'tinyllama-1.1b-chat': 'https://huggingface.co/Xenova/TinyLlama-1.1B-Chat-v1.0/resolve/main/onnx/model.onnx',
+  'llama-2-7b-chat': 'https://huggingface.co/meta-llama/Llama-2-7b-chat-hf/resolve/main/model.onnx',
+  'llama-2-13b-chat': 'https://huggingface.co/meta-llama/Llama-2-13b-chat-hf/resolve/main/model.onnx',
+  'gpt-2-small': 'https://huggingface.co/gpt2/resolve/main/model.onnx'
+}
+
 // Base class with shared ONNX logic
 export abstract class BaseONNXHandler {
   protected sessions: Map<string, ONNXSession> = new Map()
@@ -158,6 +167,47 @@ export abstract class BaseONNXHandler {
       release: () => {},
       dispose: () => {}
     }
+  }
+
+  protected async downloadModel(modelId: string): Promise<ArrayBuffer | null> {
+    try {
+      const modelUrl = MODEL_URLS[modelId]
+      if (!modelUrl) {
+        console.warn(`No download URL found for model: ${modelId}`)
+        return null
+      }
+
+      console.log(`Attempting to download model ${modelId} from: ${modelUrl}`)
+      
+      const response = await fetch(modelUrl)
+      if (!response.ok) {
+        console.warn(`Failed to download model ${modelId}: ${response.status} ${response.statusText}`)
+        console.log(`This is expected for demo URLs. In a real implementation, you would use actual ONNX model URLs.`)
+        return null
+      }
+
+      const modelData = await response.arrayBuffer()
+      console.log(`Downloaded model ${modelId} (${this.formatBytes(modelData.byteLength)})`)
+      
+      // Cache the downloaded model
+      await this.modelCache.cacheModel(modelId, modelId, modelData, this.availableProviders[0] || 'wasm')
+      
+      return modelData
+    } catch (error) {
+      console.error(`Failed to download model ${modelId}:`, error)
+      console.log(`This is expected for demo URLs. In a real implementation, you would use actual ONNX model URLs.`)
+      return null
+    }
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes'
+    
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
   // Shared getter methods
@@ -243,23 +293,80 @@ export class ONNXProvider extends BaseONNXHandler {
 
       // Check if model is cached
       const cachedModel = await this.modelCache.getCachedModel(modelId)
-      let session: any
-
+      let modelData: ArrayBuffer | undefined
+      
       if (cachedModel) {
         console.log(`Loading cached model: ${modelId}`)
-        session = await this.ort.InferenceSession.create(cachedModel, sessionOptions)
+        modelData = cachedModel.data
+      } else if (config?.modelData) {
+        console.log(`Loading model ${modelId} from provided data`)
+        modelData = config.modelData
+        await this.modelCache.cacheModel(modelId, modelId, modelData, this.availableProviders[0] || 'wasm')
       } else {
-        // For demo purposes, create a mock session
-        // In a real implementation, you would load the actual model file
-        console.log(`Creating mock session for model: ${modelId}`)
-        session = await this.createMockSession(sessionOptions)
+        // Try to download the model if not cached
+        console.log(`Model ${modelId} not cached, attempting to download...`)
+        const downloadedModelData = await this.downloadModel(modelId)
+        if (!downloadedModelData) {
+          console.log(`No actual model available for ${modelId}, creating mock session for demonstration`)
+          console.log(`In a real implementation, you would provide actual ONNX model files or URLs`)
+          const session = await this.createMockSession(sessionOptions)
+          const onnxSession: ONNXSession = {
+            session,
+            modelId,
+            isLoaded: true,
+            provider: this.availableProviders[0] || 'wasm',
+            inputNames: session.inputNames || ['input'],
+            outputNames: session.outputNames || ['output']
+          }
+          this.sessions.set(modelId, onnxSession)
+          this.currentModelId = modelId
+          return true
+        }
+        modelData = downloadedModelData
+      }
+
+      let session: any = null
+      let provider = ''
+
+      // Try each provider in order
+      for (const providerName of this.availableProviders) {
+        try {
+          const options: any = {
+            executionProviders: [providerName],
+            graphOptimizationLevel: config?.graphOptimizationLevel || 'all',
+            enableCpuMemArena: config?.enableCpuMemArena ?? true,
+            enableMemPattern: config?.enableMemPattern ?? true,
+            executionMode: config?.executionMode || 'sequential',
+            extra: config?.extra || {}
+          }
+
+          if (config?.modelPath) {
+            session = await this.ort.InferenceSession.create(config.modelPath, options)
+          } else if (modelData) {
+            session = await this.ort.InferenceSession.create(modelData, options)
+          } else {
+            console.log(`Creating mock session for provider: ${providerName}`)
+            session = await this.createMockSession(options)
+          }
+          
+          provider = providerName
+          console.log(`Successfully loaded model with provider: ${providerName}`)
+          break
+        } catch (error) {
+          console.warn(`Failed to load model with provider ${providerName}:`, error)
+          continue
+        }
+      }
+
+      if (!session) {
+        throw new Error('Failed to load model with any available provider')
       }
 
       const onnxSession: ONNXSession = {
         session,
         modelId,
         isLoaded: true,
-        provider: this.availableProviders[0] || 'wasm',
+        provider,
         inputNames: session.inputNames || ['input'],
         outputNames: session.outputNames || ['output']
       }

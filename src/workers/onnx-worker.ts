@@ -37,6 +37,33 @@ class ONNXWorker extends BaseONNXHandler {
         console.log(`Loading model ${modelId} from provided data`)
         modelData = config.modelData
         await this.modelCache.cacheModel(modelId, modelId, modelData, this.availableProviders[0] || 'wasm')
+      } else {
+        // Try to download the model if not cached
+        console.log(`Model ${modelId} not cached, attempting to download...`)
+        const downloadedModelData = await this.downloadModel(modelId)
+        if (!downloadedModelData) {
+          console.warn(`Failed to download model ${modelId}, creating mock session`)
+          const session = await this.createMockSession({
+            executionProviders: [this.availableProviders[0] || 'wasm'],
+            graphOptimizationLevel: config?.graphOptimizationLevel || 'all',
+            enableCpuMemArena: config?.enableCpuMemArena ?? true,
+            enableMemPattern: config?.enableMemPattern ?? true,
+            executionMode: config?.executionMode || 'sequential',
+            extra: config?.extra || {}
+          })
+          const sessionInfo: ONNXSession = {
+            session,
+            modelId,
+            isLoaded: true,
+            provider: this.availableProviders[0] || 'wasm',
+            inputNames: session.inputNames || ['input'],
+            outputNames: session.outputNames || ['output']
+          }
+          this.sessions.set(modelId, sessionInfo)
+          this.currentModelId = modelId
+          return true
+        }
+        modelData = downloadedModelData
       }
 
       let session: ort.InferenceSession | null = null
