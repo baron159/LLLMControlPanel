@@ -16,15 +16,20 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: resolve(__dirname, 'src/popup/index.html'),
-        background: resolve(__dirname, 'src/background/index.ts'),
+        background: resolve(__dirname, 'src/background/tiny-background.ts'),
         content: resolve(__dirname, 'src/content/index.ts'),
-        api: resolve(__dirname, 'src/api.js')
+        api: resolve(__dirname, 'src/api.js'),
+        'onnx-worker': resolve(__dirname, 'src/workers/onnx-worker.ts')
       },
       output: {
         assetFileNames: 'assets/[name].[ext]',
         chunkFileNames: '[name].js',
-        entryFileNames: '[name].js'
-      }
+        entryFileNames: '[name].js',
+        manualChunks: {
+          'onnx-runtime': ['onnxruntime-web']
+        }
+      },
+      external: ['chrome']
     }
   },
   base: './',
@@ -33,5 +38,7 @@ export default defineConfig({
       '@': resolve(__dirname, './src')
     }
   },
-
+  optimizeDeps: {
+    exclude: ['onnxruntime-web']
+  }
 }) 

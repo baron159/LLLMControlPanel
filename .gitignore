@@ -91,3 +91,5 @@ jspm_packages/
 
 # TernJS port file
 .tern-port 
+
+wsl.local.dev.sh
