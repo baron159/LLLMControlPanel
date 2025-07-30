@@ -82,31 +82,31 @@ async function fetchWithProgress(
     onProgress: (loaded: number, total?: number) => void
 ): Promise<ArrayBuffer> {
     const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status}`);
+    if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
     const reader = resp.body?.getReader();
     const total = resp.headers.get('content-length')
         ? parseInt(resp.headers.get('content-length')!, 10)
         : undefined;
     let received = 0;
-    const chunks: Uint8Array[] = [];
+    const parts: Uint8Array[] = [];
     if (!reader) return resp.arrayBuffer();
 
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         if (value) {
-            chunks.push(value);
+            parts.push(value);
             received += value.length;
             onProgress(received, total);
         }
     }
-    const result = new Uint8Array(received);
-    let position = 0;
-    for (const c of chunks) {
-        result.set(c, position);
-        position += c.length;
+    const buf = new Uint8Array(received);
+    let pos = 0;
+    for (const chunk of parts) {
+        buf.set(chunk, pos);
+        pos += chunk.length;
     }
-    return result.buffer;
+    return buf.buffer;
 }
 
 /**
@@ -117,7 +117,7 @@ async function fetchWithProgress(
  * @returns assembled ArrayBuffer of the model
  */
 export async function loadOrFetchModel(
-    urls: string[],
+    url: string,
     modelId: string,
     progressCallback?: ProgressCallback
 ): Promise<ArrayBuffer> {
@@ -138,31 +138,27 @@ export async function loadOrFetchModel(
 
     const chunkKeys: string[] = [];
     let chunkCounter = 0;
-    let totalBytesFetched = 0;
 
-    for (const url of urls) {
-        const buf = await fetchWithProgress(url, (loaded, total) => {
-            progressCallback?.({ type: 'download', url, loaded, total });
+    const buf = await fetchWithProgress(url, (loaded, total) =>
+        progressCallback?.({ type: 'download', url, loaded, total })
+    );
+
+    const parts = splitIntoChunks(buf);
+    for (const p of parts) {
+        const key = `${modelId}::chunk::${chunkCounter}`;
+        await storeChunk(db, key, p);
+        chunkKeys.push(key);
+        progressCallback?.({
+            type: 'chunkStored',
+            modelId,
+            chunkIndex: chunkCounter,
+            bytesStored: p.byteLength,
         });
-        const parts = splitIntoChunks(buf);
-        for (const p of parts) {
-            const key = `${modelId}::chunk::${chunkCounter}`;
-            await storeChunk(db, key, p);
-            chunkKeys.push(key);
-            chunkCounter++;
-            progressCallback?.({
-                type: 'chunkStored',
-                modelId,
-                chunkIndex: chunkCounter - 1,
-                bytesStored: p.byteLength,
-            });
-            totalBytesFetched += p.byteLength;
-        }
+        chunkCounter++;
     }
 
     await putModelMeta(db, { modelId, chunkKeys });
 
-    // Reassemble buffers
     const buffers = await Promise.all(chunkKeys.map(k => loadChunk(db, k)));
     const totalBytes = buffers.reduce((s, b) => s + b.byteLength, 0);
     const out = new Uint8Array(totalBytes);
