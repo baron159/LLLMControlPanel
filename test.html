@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Control Panel Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056CC;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        .error {
+            background: #ffe6e6;
+            color: #d63031;
+        }
+        .success {
+            background: #e6ffe6;
+            color: #00b894;
+        }
+    </style>
+</head>
+<body>
+    <h1>LLM Control Panel Extension Test</h1>
+    
+    <div class="test-section">
+        <h2>Extension Status</h2>
+        <p id="extension-status">Checking extension availability...</p>
+        <button onclick="checkExtension()">Check Extension</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Model Testing</h2>
+        <p>Test the LLM models through the extension API:</p>
+        <button onclick="testModel('tinyllama-1.1b-chat')">Test TinyLlama</button>
+        <button onclick="testModel('llama-2-7b-chat')">Test Llama 2 7B</button>
+        <button onclick="testModel('llama-2-13b-chat')">Test Llama 2 13B</button>
+        <div id="model-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Generate Response</h2>
+        <p>Generate a response using the extension:</p>
+        <textarea id="prompt-input" placeholder="Enter your prompt here..." rows="4" cols="50"></textarea><br>
+        <button onclick="generateResponse()">Generate Response</button>
+        <div id="response-result" class="result"></div>
+    </div>
+
+    <script>
+        function checkExtension() {
+            const statusElement = document.getElementById('extension-status');
+            
+            if (window.llmControlPanel) {
+                statusElement.innerHTML = '✅ Extension is available and ready to use!';
+                statusElement.className = 'success';
+            } else {
+                statusElement.innerHTML = '❌ Extension not found. Make sure the extension is installed and loaded.';
+                statusElement.className = 'error';
+            }
+        }
+
+        async function testModel(modelId) {
+            const resultElement = document.getElementById('model-result');
+            resultElement.textContent = 'Testing model...';
+            resultElement.className = 'result';
+
+            try {
+                if (!window.llmControlPanel) {
+                    throw new Error('Extension not available');
+                }
+
+                const response = await window.llmControlPanel.testModel(
+                    modelId,
+                    'Hello, this is a test message.'
+                );
+                
+                resultElement.textContent = `✅ Model test successful!\n\nModel: ${modelId}\nResponse: ${response}`;
+                resultElement.className = 'result success';
+            } catch (error) {
+                resultElement.textContent = `❌ Model test failed: ${error.message}`;
+                resultElement.className = 'result error';
+            }
+        }
+
+        async function generateResponse() {
+            const promptInput = document.getElementById('prompt-input');
+            const resultElement = document.getElementById('response-result');
+            const prompt = promptInput.value.trim();
+
+            if (!prompt) {
+                resultElement.textContent = 'Please enter a prompt first.';
+                resultElement.className = 'result error';
+                return;
+            }
+
+            resultElement.textContent = 'Generating response...';
+            resultElement.className = 'result';
+
+            try {
+                if (!window.llmControlPanel) {
+                    throw new Error('Extension not available');
+                }
+
+                const response = await window.llmControlPanel.generateResponse(prompt);
+                
+                resultElement.textContent = `✅ Response generated!\n\nPrompt: ${prompt}\n\nResponse: ${response}`;
+                resultElement.className = 'result success';
+            } catch (error) {
+                resultElement.textContent = `❌ Failed to generate response: ${error.message}`;
+                resultElement.className = 'result error';
+            }
+        }
+
+        // Check extension status when page loads
+        window.addEventListener('load', () => {
+            setTimeout(checkExtension, 1000);
+        });
+
+        // Listen for extension ready event
+        window.addEventListener('llmControlPanelReady', () => {
+            console.log('LLM Control Panel extension is ready!');
+            checkExtension();
+        });
+    </script>
+</body>
+</html> 
