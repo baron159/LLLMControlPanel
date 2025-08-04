@@ -1,58 +1,5 @@
-// Dynamic import for ONNX runtime to handle service worker context
-let ort: any = null
-
-async function getONNXRuntime() {
-  if (!ort) {
-    try {
-      // Check if we're in a service worker context
-      if (typeof window === 'undefined') {
-        console.log('Running in service worker context, using mock ONNX runtime')
-        ort = {
-          InferenceSession: {
-            create: async () => ({
-              inputNames: ['input'],
-              outputNames: ['output'],
-              run: async () => ({ output: new Float32Array([1]) }),
-              release: () => {},
-              dispose: () => {}
-            })
-          },
-          env: {
-            wasm: {
-              numThreads: 4,
-              simd: true,
-              proxy: true
-            }
-          }
-        }
-      } else {
-        ort = await import('onnxruntime-web')
-      }
-    } catch (error) {
-      console.error('Failed to import ONNX runtime:', error)
-      // Fallback to mock ONNX runtime
-      ort = {
-        InferenceSession: {
-          create: async () => ({
-            inputNames: ['input'],
-            outputNames: ['output'],
-            run: async () => ({ output: new Float32Array([1]) }),
-            release: () => {},
-            dispose: () => {}
-          })
-        },
-        env: {
-          wasm: {
-            numThreads: 4,
-            simd: true,
-            proxy: true
-          }
-        }
-      }
-    }
-  }
-  return ort
-}
+import type { InferenceSession } from 'onnxruntime-web/all';
+import type{ ModelDataList, ModelConfig } from '@/utils/model.list.ts';
 
 import { WebNNUtils } from '../../utils/webnn-utils'
 import { ModelCache } from '../../utils/model-cache'
@@ -75,7 +22,7 @@ export interface ONNXProviderConfig {
 }
 
 export interface ONNXSession {
-  session: any // Changed from ort.InferenceSession to any for flexibility
+  session: InferenceSession // Changed from ort.InferenceSession to any for flexibility
   modelId: string
   isLoaded: boolean
   provider: string
@@ -85,33 +32,52 @@ export interface ONNXSession {
 
 // Model URLs for downloading actual models
 // Note: These are placeholder URLs. In a real implementation, you would need actual ONNX model URLs
-const MODEL_URLS: Record<string, string> = {
-  'tinyllama-1.1b-chat': 'https://huggingface.co/Xenova/TinyLlama-1.1B-Chat-v1.0/resolve/main/onnx/model.onnx',
-  'llama-2-7b-chat': 'https://huggingface.co/meta-llama/Llama-2-7b-chat-hf/resolve/main/model.onnx',
-  'llama-2-13b-chat': 'https://huggingface.co/meta-llama/Llama-2-13b-chat-hf/resolve/main/model.onnx',
-  'gpt-2-small': 'https://huggingface.co/gpt2/resolve/main/model.onnx'
-}
+// const MODEL_URLS: Record<string, string> = {
+//   'tinyllama-1.1b-chat': 'https://huggingface.co/Xenova/TinyLlama-1.1B-Chat-v1.0/resolve/main/onnx/model.onnx',
+//   'llama-2-7b-chat': 'https://huggingface.co/meta-llama/Llama-2-7b-chat-hf/resolve/main/model.onnx',
+//   'llama-2-13b-chat': 'https://huggingface.co/meta-llama/Llama-2-13b-chat-hf/resolve/main/model.onnx',
+//   'gpt-2-small': 'https://huggingface.co/gpt2/resolve/main/model.onnx'
+// }
 
 // Base class with shared ONNX logic
 export abstract class BaseONNXHandler {
-  protected sessions: Map<string, ONNXSession> = new Map()
+  protected sessions: Map<string, ONNXSession> = new Map();
+  protected modelList?: ModelDataList;
   protected currentModelId: string | null = null
   protected availableProviders: string[] = []
   protected webnnUtils: WebNNUtils
-  protected modelCache: ModelCache
-  protected ort: any = null
+  // protected modelCache: ModelCache
+  protected ort?: typeof import('onnxruntime-web/all');
+
+  abstract loadModel(modelId: string, onnxConfig?: ONNXProviderConfig): Promise<boolean>;
+  abstract addApprovedModel(modelId: string, modelConfig?: Partial<ModelConfig>): Promise<boolean>;
+  abstract generateResponse(message: string, options?: {
+    maxTokens?: number
+    temperature?: number
+    topP?: number
+  }): Promise<string>;
+  abstract unloadModel(modelId: string): Promise<void>;
+  
 
   constructor() {
     this.webnnUtils = WebNNUtils.getInstance()
-    this.modelCache = ModelCache.getInstance()
+    // this.modelCache = ModelCache.getInstance()
     this.initializeProviders()
   }
 
   protected async initializeProviders(): Promise<void> {
     try {
       // Get ONNX runtime
-      this.ort = await getONNXRuntime()
-      
+      if (!this.ort) {
+        this.ort = await import('onnxruntime-web/all');
+      }
+
+      if (!this.modelList) {
+        this.modelList = await import('@/utils/model.list.ts').then(({ModelDataList}) => {
+          return new ModelDataList([]);
+        });
+      }
+
       await this.webnnUtils.initialize()
       
       const availableProviders = ['webnn', 'webgpu', 'wasm']
@@ -159,40 +125,29 @@ export abstract class BaseONNXHandler {
     return orderedProviders.length > 0 ? orderedProviders : ['wasm']
   }
 
-  protected async createMockSession(_options: any): Promise<any> {
-    return {
-      inputNames: ['input'],
-      outputNames: ['output'],
-      run: async (_feeds: any, _options?: any) => ({ output: new Float32Array([1]) }),
-      release: () => {},
-      dispose: () => {}
-    }
-  }
 
   protected async downloadModel(modelId: string): Promise<ArrayBuffer | null> {
     try {
-      const modelUrl = MODEL_URLS[modelId]
-      if (!modelUrl) {
-        console.warn(`No download URL found for model: ${modelId}`)
-        return null
+      if(!this.modelList) {
+        throw new Error('Model list not initialized');
+      }
+      const modelConfig = this.modelList.getModelConfig(modelId);
+      if(!modelConfig) {
+        throw new Error(`Model ${modelId} not found in approved model list`);
+      }
+      const { OnnxModelFetch } = await import('@/utils/model.list');
+      const progressFn = ({type, msg, progress, part}: {type:string, msg: string, progress: number, part: string}) => {
+        console.log(`${type}//${msg} ${progress} ${part}`);
+      }
+      const inflatedModelConfig = await OnnxModelFetch(modelConfig, progressFn);
+      if(!inflatedModelConfig.modelData){
+        throw new Error(`Model ${modelId} not loaded`);
       }
 
-      console.log(`Attempting to download model ${modelId} from: ${modelUrl}`)
+      console.log(`Downloaded model ${modelId} (${this.formatBytes((inflatedModelConfig.modelData as ArrayBuffer).byteLength)})`)
       
-      const response = await fetch(modelUrl)
-      if (!response.ok) {
-        console.warn(`Failed to download model ${modelId}: ${response.status} ${response.statusText}`)
-        console.log(`This is expected for demo URLs. In a real implementation, you would use actual ONNX model URLs.`)
-        return null
-      }
-
-      const modelData = await response.arrayBuffer()
-      console.log(`Downloaded model ${modelId} (${this.formatBytes(modelData.byteLength)})`)
       
-      // Cache the downloaded model
-      await this.modelCache.cacheModel(modelId, modelId, modelData, this.availableProviders[0] || 'wasm')
-      
-      return modelData
+      return inflatedModelConfig.modelData as ArrayBuffer;
     } catch (error) {
       console.error(`Failed to download model ${modelId}:`, error)
       console.log(`This is expected for demo URLs. In a real implementation, you would use actual ONNX model URLs.`)
@@ -246,42 +201,44 @@ export abstract class BaseONNXHandler {
 
   // Cache management methods
   async getCacheStats(): Promise<any> {
-    return await this.modelCache.getCacheStats()
+    return false
   }
 
   async getCachedModels(): Promise<any[]> {
-    return await this.modelCache.getCachedModels()
+    return []
   }
 
   async isModelCached(modelId: string): Promise<boolean> {
-    return await this.modelCache.isModelCached(modelId)
+    return false
   }
 
   async removeCachedModel(modelId: string): Promise<boolean> {
-    return await this.modelCache.removeCachedModel(modelId)
+    return false
   }
 
   async clearAllCachedModels(): Promise<boolean> {
-    return await this.modelCache.clearAllCachedModels()
+    return false
   }
 
   async cleanupOldCachedModels(maxAge?: number): Promise<number> {
-    return await this.modelCache.cleanupOldModels(maxAge)
+    return 0
   }
 
   async getCacheUsagePercentage(): Promise<number> {
-    return await this.modelCache.getCacheUsagePercentage()
+    return 0
   }
 }
 
 export class ONNXProvider extends BaseONNXHandler {
+  async addApprovedModel(modelId: string, modelConfig?: Partial<ModelConfig>): Promise<boolean> {
+    if(!this.modelList){
+      throw new Error('Model list not initialized');
+    }
+    this.modelList.addModel(modelId, modelConfig);
+  }
+
   async loadModel(modelId: string, config?: ONNXProviderConfig): Promise<boolean> {
     try {
-      // Ensure ONNX runtime is loaded
-      if (!this.ort) {
-        this.ort = await getONNXRuntime()
-      }
-
       const sessionOptions: any = {
         executionProviders: config?.executionProviders || this.availableProviders,
         graphOptimizationLevel: config?.graphOptimizationLevel || 'all',
@@ -292,12 +249,12 @@ export class ONNXProvider extends BaseONNXHandler {
       }
 
       // Check if model is cached
-      const cachedModel = await this.modelCache.getCachedModel(modelId)
+      const cachedModel = this.modelList?.getModelConfig(modelId);
       let modelData: ArrayBuffer | undefined
       
-      if (cachedModel) {
+      if (cachedModel && !!cachedModel.modelData) {
         console.log(`Loading cached model: ${modelId}`)
-        modelData = cachedModel.data
+        modelData = cachedModel.modelData as ArrayBuffer;
       } else if (config?.modelData) {
         console.log(`Loading model ${modelId} from provided data`)
         modelData = config.modelData

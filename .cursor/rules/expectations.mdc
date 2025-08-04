@@ -2,3 +2,5 @@
 alwaysApply: true
 ---
 You should always review the current project state and see if exsiting functions/code can be expanded/modified to satisfy request. Avoid making new files/classes unless neccessary.
+
+Do not include test files unless asked

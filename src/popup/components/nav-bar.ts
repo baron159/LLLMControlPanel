@@ -11,6 +11,33 @@ export class NavBar extends HTMLElement {
     console.log('NavBar connectedCallback called')
     this.render()
     this.setupEventListeners()
+    this.initializeTheme()
+  }
+
+  private initializeTheme() {
+    // Import theme manager dynamically to avoid circular dependencies
+    import('../../utils/theme-manager').then(({ ThemeManager }) => {
+      const themeManager = ThemeManager.getInstance()
+      const currentTheme = themeManager.getTheme()
+      this.applyTheme(currentTheme)
+      
+      themeManager.addListener((theme) => {
+        console.log('NavBar: Theme changed to:', theme)
+        this.applyTheme(theme)
+      })
+    }).catch(error => {
+      console.error('NavBar: Failed to load theme manager:', error)
+    })
+  }
+
+  private applyTheme(theme: 'light' | 'dark') {
+    if (!this.shadowRoot) return
+    
+    if (theme === 'dark') {
+      this.shadowRoot.host.classList.add('dark')
+    } else {
+      this.shadowRoot.host.classList.remove('dark')
+    }
   }
 
   private render() {

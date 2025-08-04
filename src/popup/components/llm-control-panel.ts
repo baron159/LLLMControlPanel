@@ -5,20 +5,44 @@ import './settings-view'
 import './help-view'
 import './about-view'
 import './sliding-pane'
+import { ThemeManager } from '../../utils/theme-manager'
 
 export class LLMControlPanel extends HTMLElement {
   private currentView: 'apps' | 'activity' = 'apps'
+  private themeManager = ThemeManager.getInstance()
 
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
     console.log('LLMControlPanel constructor called')
+    this.initializeTheme()
   }
 
   connectedCallback() {
     console.log('LLMControlPanel connectedCallback called')
     this.render()
     this.setupEventListeners()
+  }
+
+  private initializeTheme() {
+    // Initialize theme manager to ensure theme is applied
+    this.themeManager.getTheme()
+    
+    // Listen for theme changes
+    this.themeManager.addListener((theme) => {
+      console.log('LLMControlPanel: Theme changed to:', theme)
+      this.applyTheme(theme)
+    })
+  }
+
+  private applyTheme(theme: 'light' | 'dark') {
+    if (!this.shadowRoot) return
+    
+    if (theme === 'dark') {
+      this.shadowRoot.host.classList.add('dark')
+    } else {
+      this.shadowRoot.host.classList.remove('dark')
+    }
   }
 
   private render() {
@@ -155,6 +179,14 @@ export class LLMControlPanel extends HTMLElement {
       } else {
         console.error('LLMControlPanel: aboutPane not found!')
       }
+    })
+
+    // Handle pane closed events
+    this.shadowRoot.addEventListener('pane-closed', (e: any) => {
+      console.log('LLMControlPanel: pane-closed event received:', e.detail)
+      // When a pane is closed, ensure we're back to the main view
+      // The main view is already visible, so no additional action needed
+      // but we can add any cleanup logic here if needed
     })
 
     console.log('LLMControlPanel: Event listeners setup completed')

@@ -3,7 +3,9 @@ const CHUNK_SIZE = 50 * 1024 * 1024; // 50 MB
 type ProgressInfo =
     | { type: 'download'; url: string; loaded: number; total?: number }
     | { type: 'chunkStored'; modelId: string; chunkIndex: number; bytesStored: number }
-    | { type: 'complete'; modelId: string; totalBytes: number };
+    | { type: 'complete'; modelId: string; totalBytes: number }
+    | { type: 'error'; modelId: string; error: string }
+    | { type: 'info'; modelId: string; msg: string; part?: string };
 
 type ProgressCallback = (info: ProgressInfo) => void;
 

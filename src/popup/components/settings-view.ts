@@ -6,6 +6,8 @@ export interface ModelConfig {
   url: string
 }
 
+import { ThemeManager } from '../../utils/theme-manager'
+
 export class SettingsView extends HTMLElement {
   private models: ModelConfig[] = [
     {
@@ -34,16 +36,41 @@ export class SettingsView extends HTMLElement {
   private selectedModel: string = 'tinyllama-1.1b-chat'
   private isModelLoading = false
   private modelProgress = 0
+  private currentTheme: 'light' | 'dark' = 'light'
+  private themeManager = ThemeManager.getInstance()
 
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
     this.loadSettings()
+    this.initializeTheme()
   }
 
   connectedCallback() {
     this.render()
-    this.setupEventListeners()
+  }
+
+  private initializeTheme() {
+    this.currentTheme = this.themeManager.getTheme()
+    console.log('SettingsView: Initial theme:', this.currentTheme)
+    this.applyTheme(this.currentTheme)
+    
+    this.themeManager.addListener((theme) => {
+      console.log('SettingsView: Theme changed to:', theme)
+      this.currentTheme = theme
+      this.applyTheme(theme)
+      this.render()
+    })
+  }
+
+  private applyTheme(theme: 'light' | 'dark') {
+    if (!this.shadowRoot) return
+    
+    if (theme === 'dark') {
+      this.shadowRoot.host.classList.add('dark')
+    } else {
+      this.shadowRoot.host.classList.remove('dark')
+    }
   }
 
   private async loadSettings() {
@@ -276,9 +303,96 @@ export class SettingsView extends HTMLElement {
           color: #FF3B30;
           border: 1px solid rgba(255, 59, 48, 0.2);
         }
+        
+        .theme-toggle {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px;
+          border: 2px solid #e0e0e0;
+          border-radius: 8px;
+          background: white;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        
+        .dark .theme-toggle {
+          background: #2d2d2d;
+          border-color: #404040;
+        }
+        
+        .theme-toggle:hover {
+          border-color: #007AFF;
+        }
+        
+        .theme-info {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        
+        .theme-label {
+          font-weight: 600;
+          color: #333;
+          font-size: 14px;
+        }
+        
+        .dark .theme-label {
+          color: #e0e0e0;
+        }
+        
+        .theme-description {
+          font-size: 13px;
+          color: #666;
+        }
+        
+        .dark .theme-description {
+          color: #ccc;
+        }
+        
+        .toggle-switch {
+          position: relative;
+          width: 50px;
+          height: 24px;
+          background: #ccc;
+          border-radius: 12px;
+          transition: background 0.3s ease;
+        }
+        
+        .toggle-switch.active {
+          background: #007AFF;
+        }
+        
+        .toggle-slider {
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          width: 20px;
+          height: 20px;
+          background: white;
+          border-radius: 50%;
+          transition: transform 0.3s ease;
+        }
+        
+        .toggle-switch.active .toggle-slider {
+          transform: translateX(26px);
+        }
       </style>
       
       <div class="settings-container">
+        <div class="settings-section">
+          <h3 class="section-title">Appearance</h3>
+          <div class="theme-toggle" id="theme-toggle">
+            <div class="theme-info">
+              <span class="theme-label">Dark Mode</span>
+              <span class="theme-description">Switch between light and dark themes</span>
+            </div>
+            <div class="toggle-switch ${this.currentTheme === 'dark' ? 'active' : ''}" id="toggle-switch">
+              <div class="toggle-slider"></div>
+            </div>
+          </div>
+        </div>
+        
         <div class="settings-section">
           <h3 class="section-title">Model Selection</h3>
           <div class="model-grid">
@@ -320,10 +434,19 @@ export class SettingsView extends HTMLElement {
         </div>
       </div>
     `
+    
+    // Setup event listeners after DOM is created
+    this.setupEventListeners()
   }
 
   private setupEventListeners() {
     if (!this.shadowRoot) return
+
+    // Theme toggle
+    this.shadowRoot.getElementById('theme-toggle')?.addEventListener('click', () => {
+      console.log('SettingsView: Theme toggle clicked')
+      this.themeManager.toggleTheme()
+    })
 
     // Model selection
     this.shadowRoot.querySelectorAll('.model-card').forEach(card => {

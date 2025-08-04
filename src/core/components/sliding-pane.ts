@@ -8,7 +8,33 @@ export class SlidingPane extends HTMLElement {
 
   connectedCallback() {
     this.render()
-    this.setupEventListeners()
+    this.initializeTheme()
+  }
+
+  private initializeTheme() {
+    // Import theme manager dynamically to avoid circular dependencies
+    import('../../utils/theme-manager').then(({ ThemeManager }) => {
+      const themeManager = ThemeManager.getInstance()
+      const currentTheme = themeManager.getTheme()
+      this.applyTheme(currentTheme)
+      
+      themeManager.addListener((theme) => {
+        console.log('Core SlidingPane: Theme changed to:', theme)
+        this.applyTheme(theme)
+      })
+    }).catch(error => {
+      console.error('Core SlidingPane: Failed to load theme manager:', error)
+    })
+  }
+
+  private applyTheme(theme: 'light' | 'dark') {
+    if (!this.shadowRoot) return
+    
+    if (theme === 'dark') {
+      this.shadowRoot.host.classList.add('dark')
+    } else {
+      this.shadowRoot.host.classList.remove('dark')
+    }
   }
 
   static get observedAttributes() {
@@ -55,6 +81,8 @@ export class SlidingPane extends HTMLElement {
           background: white;
           transform: translateX(100%);
           transition: transform 0.3s ease-in-out;
+          display: flex;
+          flex-direction: column;
         }
         
         .dark .pane {
@@ -71,6 +99,7 @@ export class SlidingPane extends HTMLElement {
           align-items: center;
           padding: 16px;
           border-bottom: 1px solid #e0e0e0;
+          flex-shrink: 0;
         }
         
         .dark .pane-header {
@@ -113,7 +142,7 @@ export class SlidingPane extends HTMLElement {
         
         .pane-content {
           padding: 16px;
-          height: calc(100% - 60px);
+          flex: 1;
           overflow-y: auto;
         }
       </style>
@@ -130,6 +159,9 @@ export class SlidingPane extends HTMLElement {
         </div>
       </div>
     `
+    
+    // Setup event listeners after DOM is created
+    this.setupEventListeners()
   }
 
   private setupEventListeners() {
@@ -154,6 +186,14 @@ export class SlidingPane extends HTMLElement {
 
   hide() {
     this.removeAttribute('shown')
+    
+    // Dispatch custom event to notify parent components
+    const event = new CustomEvent('pane-closed', {
+      bubbles: true,
+      composed: true,
+      detail: { paneId: this.id }
+    })
+    this.dispatchEvent(event)
   }
 
   toggle() {
