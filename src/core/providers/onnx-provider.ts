@@ -235,6 +235,7 @@ export class ONNXProvider extends BaseONNXHandler {
       throw new Error('Model list not initialized');
     }
     this.modelList.addModel(modelId, modelConfig);
+    return true;
   }
 
   async loadModel(modelId: string, config?: ONNXProviderConfig): Promise<boolean> {
