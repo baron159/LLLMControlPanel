@@ -1,5 +1,6 @@
 import type { InferenceSession } from 'onnxruntime-web/all';
 import type{ ModelDataList, ModelConfig } from '@/utils/model.list.ts';
+import type { PreTrainedTokenizer } from '@huggingface/transformers';
 
 import { WebNNUtils } from '../../utils/webnn-utils'
 import { ModelCache } from '../../utils/model-cache'
@@ -48,6 +49,10 @@ export abstract class BaseONNXHandler {
   protected webnnUtils: WebNNUtils
   // protected modelCache: ModelCache
   protected ort?: typeof import('onnxruntime-web/all');
+  protected eosTokenId?: string;
+  protected numLayers?: number;
+  protected kvDims?: [number, number, number, number];
+  protected tokenizer?: PreTrainedTokenizer;
 
   abstract loadModel(modelId: string, onnxConfig?: ONNXProviderConfig): Promise<boolean>;
   abstract addApprovedModel(modelId: string, modelConfig?: Partial<ModelConfig>): Promise<boolean>;
@@ -230,6 +235,7 @@ export abstract class BaseONNXHandler {
 }
 
 export class ONNXProvider extends BaseONNXHandler {
+
   async addApprovedModel(modelId: string, modelConfig?: Partial<ModelConfig>): Promise<boolean> {
     if(!this.modelList){
       throw new Error('Model list not initialized');
@@ -248,6 +254,9 @@ export class ONNXProvider extends BaseONNXHandler {
         executionMode: config?.executionMode || 'sequential',
         extra: config?.extra || {}
       }
+      if(!this.ort){
+        throw Error('ONNX runtime not initialized');
+      }
 
       // Check if model is cached
       const cachedModel = this.modelList?.getModelConfig(modelId);
@@ -256,35 +265,38 @@ export class ONNXProvider extends BaseONNXHandler {
       if (cachedModel && !!cachedModel.modelData) {
         console.log(`Loading cached model: ${modelId}`)
         modelData = cachedModel.modelData as ArrayBuffer;
-      } else if (config?.modelData) {
-        console.log(`Loading model ${modelId} from provided data`)
-        modelData = config.modelData
-        await this.modelCache.cacheModel(modelId, modelId, modelData, this.availableProviders[0] || 'wasm')
-      } else {
+      } else if(!!cachedModel) {
         // Try to download the model if not cached
         console.log(`Model ${modelId} not cached, attempting to download...`)
         const downloadedModelData = await this.downloadModel(modelId)
         if (!downloadedModelData) {
-          console.log(`No actual model available for ${modelId}, creating mock session for demonstration`)
-          console.log(`In a real implementation, you would provide actual ONNX model files or URLs`)
-          const session = await this.createMockSession(sessionOptions)
-          const onnxSession: ONNXSession = {
-            session,
-            modelId,
-            isLoaded: true,
-            provider: this.availableProviders[0] || 'wasm',
-            inputNames: session.inputNames || ['input'],
-            outputNames: session.outputNames || ['output']
-          }
-          this.sessions.set(modelId, onnxSession)
-          this.currentModelId = modelId
-          return true
+          console.log(`No model data available for ${modelId}`)
+          throw Error(`Given the model config, no model data could be resolved for ${modelId} -- Review the config and try again. If you are seeing this not as a developer, you may need support from the app`);
         }
         modelData = downloadedModelData
+      } else {
+        throw Error(`Model ${modelId} not found in approved model list`);
       }
 
-      let session: any = null
-      let provider = ''
+      if(!cachedModel.configData){
+        throw Error(`Model ${modelId} config data could not be resolved`);
+      } else {
+        this.eosTokenId = cachedModel.configData.eos_token_id;
+        this.numLayers = cachedModel.configData.num_hidden_layers;
+        const numHeads = cachedModel.configData.num_attention_heads;
+        const numKvHeads = cachedModel.configData.num_kv_heads ?? numHeads;
+        const hiddenSize = cachedModel.configData.hidden_size;
+        this.kvDims = [1, numKvHeads, 0, hiddenSize / numHeads];
+        this.tokenizer = await this.modelList?.getTokenizer(modelId);
+        console.log(`Model ${modelId} config data resolved -- and tokenizer loaded`);
+      }
+
+      if(!modelData){
+        throw Error(`Model ${modelId} data could not be resolved`);
+      }
+
+      let session: InferenceSession | null = null;
+      let provider = '';
 
       // Try each provider in order
       for (const providerName of this.availableProviders) {
@@ -295,23 +307,16 @@ export class ONNXProvider extends BaseONNXHandler {
             enableCpuMemArena: config?.enableCpuMemArena ?? true,
             enableMemPattern: config?.enableMemPattern ?? true,
             executionMode: config?.executionMode || 'sequential',
-            extra: config?.extra || {}
+            externalData: cachedModel.externalData,
           }
 
-          if (config?.modelPath) {
-            session = await this.ort.InferenceSession.create(config.modelPath, options)
-          } else if (modelData) {
-            session = await this.ort.InferenceSession.create(modelData, options)
-          } else {
-            console.log(`Creating mock session for provider: ${providerName}`)
-            session = await this.createMockSession(options)
-          }
-          
+          session = await this.ort.InferenceSession.create(modelData, options);
           provider = providerName
           console.log(`Successfully loaded model with provider: ${providerName}`)
           break
         } catch (error) {
-          console.warn(`Failed to load model with provider ${providerName}:`, error)
+          console.warn(`Failed to load model with provider ${providerName}:`, error);
+          console.info(`Trying next provider...`);
           continue
         }
       }
@@ -325,8 +330,8 @@ export class ONNXProvider extends BaseONNXHandler {
         modelId,
         isLoaded: true,
         provider,
-        inputNames: session.inputNames || ['input'],
-        outputNames: session.outputNames || ['output']
+        inputNames: Array.from(session.inputNames),
+        outputNames: Array.from(session.outputNames)
       }
 
       this.sessions.set(modelId, onnxSession)
@@ -402,9 +407,9 @@ export class ONNXProvider extends BaseONNXHandler {
         if (session.session && typeof session.session.release === 'function') {
           session.session.release()
         }
-        if (session.session && typeof session.session.dispose === 'function') {
-          session.session.dispose()
-        }
+        // if (session.session && typeof session.session.dispose === 'function') {
+        //   session.session.dispose()
+        // }
       } catch (error) {
         console.error(`Error releasing session for model ${modelId}:`, error)
       }
