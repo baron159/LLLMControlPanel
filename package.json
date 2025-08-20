@@ -1,6 +1,6 @@
 {
   "name": "llm-control-panel",
-  "version": "1.0.0.1039",
+  "version": "1.0.0.1040",
   "description": "Browser extension for LLM control using ONNX Runtime",
   "type": "module",
   "scripts": {

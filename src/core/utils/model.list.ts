@@ -1,3 +1,7 @@
+/** @fileoverview
+ * This file contains the code for the model list
+ *      Model Config list is used to store/manage approved models
+ */
 import type { PreTrainedTokenizer } from '@huggingface/transformers';
 export interface ModelConfig {
     modelId:string; // We assume  the modelId is the in `<user>/<repo>` format

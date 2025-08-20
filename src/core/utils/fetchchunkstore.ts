@@ -1,3 +1,7 @@
+/** @fileoverview
+ * This file contains the code to fetch a model from a remote server and store it in the IndexedDB.
+ *  Logic that can be used by any part of the app
+ */
 const CHUNK_SIZE = 50 * 1024 * 1024; // 50 MB
 
 type ProgressInfo =

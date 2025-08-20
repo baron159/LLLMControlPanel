@@ -1,3 +1,7 @@
+/** @fileoverview
+ * This file contains the code for the `fetch` to be cached using the Cache API
+ *  TODO: Add fetch options - cache expiration override
+ */
 export async function fetchAndCache(url: string) {
     try {
         const cache = await caches.open("llm-control-panel");
