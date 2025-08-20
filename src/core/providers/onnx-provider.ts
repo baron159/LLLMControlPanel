@@ -1,9 +1,9 @@
 import type { InferenceSession } from 'onnxruntime-web/all';
-import type{ ModelDataList, ModelConfig } from '@/utils/model.list.ts';
+import type{ ModelDataList, ModelConfig } from '@/core/utils/model.list';
 import type { PreTrainedTokenizer } from '@huggingface/transformers';
 
-import { WebNNUtils } from '../../utils/webnn-utils'
-import { ModelCache } from '../../utils/model-cache'
+import { WebNNUtils } from '../utils/webnn-utils'
+// import { ModelCache } from '../../utils/model-cache'
 
 export interface ONNXProviderConfig {
   executionProviders: string[]
@@ -54,7 +54,7 @@ export abstract class BaseONNXHandler {
   protected kvDims?: [number, number, number, number];
   protected tokenizer?: PreTrainedTokenizer;
 
-  abstract loadModel(modelId: string, onnxConfig?: ONNXProviderConfig): Promise<boolean>;
+  // abstract loadModel(modelId: string, onnxConfig?: ONNXProviderConfig): Promise<boolean>;
   abstract addApprovedModel(modelId: string, modelConfig?: Partial<ModelConfig>): Promise<boolean>;
   abstract generateResponse(message: string, options?: {
     maxTokens?: number
@@ -78,7 +78,7 @@ export abstract class BaseONNXHandler {
       }
 
       if (!this.modelList) {
-        this.modelList = await import('@/utils/model.list.ts').then(({ModelDataList}) => {
+        this.modelList = await import('@/core/utils/model.list').then(({ModelDataList}) => {
           return new ModelDataList([]);
         });
       }
@@ -140,7 +140,7 @@ export abstract class BaseONNXHandler {
       if(!modelConfig) {
         throw new Error(`Model ${modelId} not found in approved model list`);
       }
-      const { OnnxModelFetch } = await import('@/utils/model.list');
+      const { OnnxModelFetch } = await import('@/core/utils/model.list');
       const progressFn = ({type, msg, progress, part}: {type:string, msg: string, progress: number, part: string}) => {
         console.log(`${type}//${msg} ${progress} ${part}`);
       }
@@ -160,91 +160,13 @@ export abstract class BaseONNXHandler {
     }
   }
 
-  private formatBytes(bytes: number): string {
-    if (bytes === 0) return '0 Bytes'
-    
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-  }
-
-  // Shared getter methods
-  getCurrentModel(): string | null {
-    return this.currentModelId
-  }
-
-  getCurrentProvider(): string | null {
-    if (this.currentModelId) {
-      const session = this.sessions.get(this.currentModelId)
-      return session?.provider || null
-    }
-    return null
-  }
-
-  isModelLoaded(modelId: string): boolean {
-    const session = this.sessions.get(modelId)
-    return session?.isLoaded || false
-  }
-
-  getAvailableProviders(): string[] {
-    return [...this.availableProviders]
-  }
-
-  getWebNNDevices(): any[] {
-    return this.webnnUtils.getAvailableDevices()
-  }
-
-  getPreferredWebNNDevice(): any {
-    return this.webnnUtils.getPreferredDevice()
-  }
-
-  getSessionInfo(modelId: string): ONNXSession | null {
-    return this.sessions.get(modelId) || null
-  }
-
-  // Cache management methods
-  async getCacheStats(): Promise<any> {
-    return false
-  }
-
-  async getCachedModels(): Promise<any[]> {
-    return []
-  }
-
-  async isModelCached(modelId: string): Promise<boolean> {
-    return false
-  }
-
-  async removeCachedModel(modelId: string): Promise<boolean> {
-    return false
-  }
-
-  async clearAllCachedModels(): Promise<boolean> {
-    return false
-  }
-
-  async cleanupOldCachedModels(maxAge?: number): Promise<number> {
-    return 0
-  }
-
-  async getCacheUsagePercentage(): Promise<number> {
-    return 0
-  }
-}
-
-export class ONNXProvider extends BaseONNXHandler {
-
-  async addApprovedModel(modelId: string, modelConfig?: Partial<ModelConfig>): Promise<boolean> {
-    if(!this.modelList){
-      throw new Error('Model list not initialized');
-    }
-    this.modelList.addModel(modelId, modelConfig);
-    return true;
-  }
-
   async loadModel(modelId: string, config?: ONNXProviderConfig): Promise<boolean> {
+    console.log(`Loading model: ${modelId}`)
+    if(this.sessions.has(modelId) && this.sessions.get(modelId)?.isLoaded){
+      console.log(`Model ${modelId} already loaded`);
+      this.currentModelId = modelId;
+      return true;
+    }
     try {
       const sessionOptions: any = {
         executionProviders: config?.executionProviders || this.availableProviders,
@@ -302,11 +224,8 @@ export class ONNXProvider extends BaseONNXHandler {
       for (const providerName of this.availableProviders) {
         try {
           const options: any = {
+            ...sessionOptions,
             executionProviders: [providerName],
-            graphOptimizationLevel: config?.graphOptimizationLevel || 'all',
-            enableCpuMemArena: config?.enableCpuMemArena ?? true,
-            enableMemPattern: config?.enableMemPattern ?? true,
-            executionMode: config?.executionMode || 'sequential',
             externalData: cachedModel.externalData,
           }
 
@@ -344,6 +263,92 @@ export class ONNXProvider extends BaseONNXHandler {
       return false
     }
   }
+
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes'
+    
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  // Shared getter methods
+  getCurrentModel(): string | null {
+    return this.currentModelId
+  }
+
+  getCurrentProvider(): string | null {
+    if (this.currentModelId) {
+      const session = this.sessions.get(this.currentModelId)
+      return session?.provider || null
+    }
+    return null
+  }
+
+  isModelLoaded(modelId: string): boolean {
+    const session = this.sessions.get(modelId)
+    return session?.isLoaded || false
+  }
+
+  getAvailableProviders(): string[] {
+    return [...this.availableProviders]
+  }
+
+  getWebNNDevices(): any[] {
+    return this.webnnUtils.getAvailableDevices()
+  }
+
+  getPreferredWebNNDevice(): any {
+    return this.webnnUtils.getPreferredDevice()
+  }
+
+  getSessionInfo(modelId: string): ONNXSession | null {
+    return this.sessions.get(modelId) || null
+  }
+
+  // Cache management methods
+  async getCacheStats(): Promise<any> {
+    return false
+  }
+
+  async getCachedModels(): Promise<any[]> {
+    return []
+  }
+
+  async isModelCached(_modelId: string): Promise<boolean> {
+    return false
+  }
+
+  async removeCachedModel(_modelId: string): Promise<boolean> {
+    return false
+  }
+
+  async clearAllCachedModels(_maxAge?: number): Promise<boolean> {
+    return false
+  }
+
+  async cleanupOldCachedModels(_maxAge?: number): Promise<number> {
+    return 0
+  }
+
+  async getCacheUsagePercentage(): Promise<number> {
+    return 0
+  }
+}
+
+export class ONNXProvider extends BaseONNXHandler {
+
+  async addApprovedModel(modelId: string, modelConfig?: Partial<ModelConfig>): Promise<boolean> {
+    if(!this.modelList){
+      throw new Error('Model list not initialized');
+    }
+    this.modelList.addModel(modelId, modelConfig);
+    return true;
+  }
+
+  
 
   async generateResponse(message: string, _options?: {
     maxTokens?: number

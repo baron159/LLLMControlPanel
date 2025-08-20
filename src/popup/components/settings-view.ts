@@ -6,7 +6,7 @@ export interface ModelConfig {
   url: string
 }
 
-import { ThemeManager } from '../../utils/theme-manager'
+import { ThemeManager } from '../../core/utils/theme-manager'
 
 export class SettingsView extends HTMLElement {
   private models: ModelConfig[] = [

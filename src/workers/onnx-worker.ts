@@ -1,8 +1,9 @@
 // ONNX Worker - handles heavy ONNX operations
-import * as ort from 'onnxruntime-web'
+import type * as ort from 'onnxruntime-web'
 // import { WebNNUtils } from '../utils/webnn-utils'
 // import { ModelCache } from '../utils/model-cache'
-import { BaseONNXHandler, ONNXSession } from '../core/providers/onnx-provider'
+import { BaseONNXHandler } from '../core/providers/onnx-provider'
+import type { ModelConfig } from '@/core/managers/model-manager';
 
 export interface ONNXWorkerConfig {
   executionProviders: string[]
@@ -17,111 +18,15 @@ export interface ONNXWorkerConfig {
 }
 
 class ONNXWorker extends BaseONNXHandler {
-  async loadModel(modelId: string, config?: ONNXWorkerConfig): Promise<boolean> {
-    try {
-      if (this.sessions.has(modelId) && this.sessions.get(modelId)?.isLoaded) {
-        this.currentModelId = modelId
-        return true
-      }
 
-      console.log(`Loading model: ${modelId} with providers:`, this.availableProviders)
-      
-      // Try to get model from cache first
-      const cachedModel = await this.modelCache.getCachedModel(modelId)
-      let modelData: ArrayBuffer | undefined
-      
-      if (cachedModel) {
-        console.log(`Loading model ${modelId} from cache`)
-        modelData = cachedModel.data
-      } else if (config?.modelData) {
-        console.log(`Loading model ${modelId} from provided data`)
-        modelData = config.modelData
-        await this.modelCache.cacheModel(modelId, modelId, modelData, this.availableProviders[0] || 'wasm')
-      } else {
-        // Try to download the model if not cached
-        console.log(`Model ${modelId} not cached, attempting to download...`)
-        const downloadedModelData = await this.downloadModel(modelId)
-        if (!downloadedModelData) {
-          console.warn(`Failed to download model ${modelId}, creating mock session`)
-          const session = await this.createMockSession({
-            executionProviders: [this.availableProviders[0] || 'wasm'],
-            graphOptimizationLevel: config?.graphOptimizationLevel || 'all',
-            enableCpuMemArena: config?.enableCpuMemArena ?? true,
-            enableMemPattern: config?.enableMemPattern ?? true,
-            executionMode: config?.executionMode || 'sequential',
-            extra: config?.extra || {}
-          })
-          const sessionInfo: ONNXSession = {
-            session,
-            modelId,
-            isLoaded: true,
-            provider: this.availableProviders[0] || 'wasm',
-            inputNames: session.inputNames || ['input'],
-            outputNames: session.outputNames || ['output']
-          }
-          this.sessions.set(modelId, sessionInfo)
-          this.currentModelId = modelId
-          return true
-        }
-        modelData = downloadedModelData
-      }
-
-      let session: ort.InferenceSession | null = null
-      let provider = ''
-
-      // Try each provider in order
-      for (const providerName of this.availableProviders) {
-        try {
-          const options: ort.InferenceSession.SessionOptions = {
-            executionProviders: [providerName],
-            graphOptimizationLevel: config?.graphOptimizationLevel || 'all',
-            enableCpuMemArena: config?.enableCpuMemArena ?? true,
-            enableMemPattern: config?.enableMemPattern ?? true,
-            executionMode: config?.executionMode || 'sequential',
-            extra: config?.extra || {}
-          }
-
-          if (config?.modelPath) {
-            session = await ort.InferenceSession.create(config.modelPath, options)
-          } else if (modelData) {
-            session = await ort.InferenceSession.create(modelData, options)
-          } else {
-            console.log(`Creating mock session for provider: ${providerName}`)
-            session = await this.createMockSession(options)
-          }
-          
-          provider = providerName
-          console.log(`Successfully loaded model with provider: ${providerName}`)
-          break
-        } catch (error) {
-          console.warn(`Failed to load model with provider ${providerName}:`, error)
-          continue
-        }
-      }
-
-      if (!session) {
-        throw new Error('Failed to load model with any available provider')
-      }
-
-      const sessionInfo: ONNXSession = {
-        session,
-        modelId,
-        isLoaded: true,
-        provider,
-        inputNames: [...session.inputNames],
-        outputNames: [...session.outputNames]
-      }
-
-      this.sessions.set(modelId, sessionInfo)
-      this.currentModelId = modelId
-      
-      console.log(`Model ${modelId} loaded successfully with provider: ${provider}`)
-      return true
-    } catch (error) {
-      console.error('Failed to load model:', error)
-      return false
+  async addApprovedModel(modelId: string, modelConfig?: Partial<ModelConfig>): Promise<boolean> {
+    if(!this.modelList){
+      throw new Error('Model list not initialized');
     }
+    this.modelList.addModel(modelId, modelConfig);
+    return true;
   }
+
 
   async generateResponse(message: string, options?: {
     maxTokens?: number

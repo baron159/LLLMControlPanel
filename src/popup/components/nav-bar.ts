@@ -16,7 +16,7 @@ export class NavBar extends HTMLElement {
 
   private initializeTheme() {
     // Import theme manager dynamically to avoid circular dependencies
-    import('../../utils/theme-manager').then(({ ThemeManager }) => {
+    import('../../core/utils/theme-manager').then(({ ThemeManager }) => {
       const themeManager = ThemeManager.getInstance()
       const currentTheme = themeManager.getTheme()
       this.applyTheme(currentTheme)

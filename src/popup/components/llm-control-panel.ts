@@ -5,7 +5,7 @@ import './settings-view'
 import './help-view'
 import './about-view'
 import './sliding-pane'
-import { ThemeManager } from '../../utils/theme-manager'
+import { ThemeManager } from '../../core/utils/theme-manager'
 
 export class LLMControlPanel extends HTMLElement {
   private currentView: 'apps' | 'activity' = 'apps'

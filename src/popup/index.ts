@@ -1,5 +1,5 @@
 import './components/llm-control-panel'
-import { ThemeManager } from '../utils/theme-manager'
+import { ThemeManager } from '../core/utils/theme-manager'
 
 // Initialize the popup
 document.addEventListener('DOMContentLoaded', () => {
