@@ -57,7 +57,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: resolve(__dirname, 'src/popup/index.html'),
-        background: resolve(__dirname, 'src/background/tiny-background.ts'),
+        background: resolve(__dirname, 'src/background/sw.ts'),
         content: resolve(__dirname, 'src/content/index.ts'),
         api: resolve(__dirname, 'src/api.js'),
         'onnx-worker': resolve(__dirname, 'src/workers/onnx-worker.ts')

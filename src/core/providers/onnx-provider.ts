@@ -141,18 +141,27 @@ export abstract class BaseONNXHandler {
         throw new Error(`Model ${modelId} not found in approved model list`);
       }
       const { OnnxModelFetch } = await import('@/core/utils/model.list');
+      const { loadOrFetchModel } = await import('@/core/utils/fetchchunkstore');
       const progressFn = ({type, msg, progress, part}: {type:string, msg: string, progress: number, part: string}) => {
         console.log(`${type}//${msg} ${progress} ${part}`);
       }
-      const inflatedModelConfig = await OnnxModelFetch(modelConfig, progressFn);
-      if(!inflatedModelConfig.modelData){
+      
+      // Download and store model data in IndexedDB
+      await OnnxModelFetch(modelConfig, progressFn);
+      
+      // Load the stored model data
+      const modelData = await loadOrFetchModel(
+        `${modelConfig.urlBase}/${modelConfig.modelId}/${modelConfig.repoBase}/${modelConfig.onnxDir}/${modelConfig.modelFileName}`,
+        modelConfig.modelId
+      );
+      
+      if(!modelData){
         throw new Error(`Model ${modelId} not loaded`);
       }
 
-      console.log(`Downloaded model ${modelId} (${this.formatBytes((inflatedModelConfig.modelData as ArrayBuffer).byteLength)})`)
+      console.log(`Downloaded model ${modelId} (${this.formatBytes(modelData.byteLength)})`)
       
-      
-      return inflatedModelConfig.modelData as ArrayBuffer;
+      return modelData;
     } catch (error) {
       console.error(`Failed to download model ${modelId}:`, error)
       console.log(`This is expected for demo URLs. In a real implementation, you would use actual ONNX model URLs.`)
@@ -184,11 +193,20 @@ export abstract class BaseONNXHandler {
       const cachedModel = this.modelList?.getModelConfig(modelId);
       let modelData: ArrayBuffer | undefined
       
-      if (cachedModel && !!cachedModel.modelData) {
-        console.log(`Loading cached model: ${modelId}`)
-        modelData = cachedModel.modelData as ArrayBuffer;
-      } else if(!!cachedModel) {
-        // Try to download the model if not cached
+      if (!cachedModel) {
+        throw Error(`Model ${modelId} not found in approved model list`);
+      }
+      
+      // Load model data from IndexedDB storage
+       const { loadOrFetchModel } = await import('@/core/utils/fetchchunkstore');
+       const { loadModelConfig } = await import('@/core/utils/model.list');
+       try {
+         console.log(`Loading model data for: ${modelId}`)
+         modelData = await loadOrFetchModel(
+           `${cachedModel.urlBase}/${cachedModel.modelId}/${cachedModel.repoBase}/${cachedModel.onnxDir}/${cachedModel.modelFileName}`,
+           cachedModel.modelId
+         );
+      } catch (error) {
         console.log(`Model ${modelId} not cached, attempting to download...`)
         const downloadedModelData = await this.downloadModel(modelId)
         if (!downloadedModelData) {
@@ -196,18 +214,24 @@ export abstract class BaseONNXHandler {
           throw Error(`Given the model config, no model data could be resolved for ${modelId} -- Review the config and try again. If you are seeing this not as a developer, you may need support from the app`);
         }
         modelData = downloadedModelData
-      } else {
-        throw Error(`Model ${modelId} not found in approved model list`);
       }
 
-      if(!cachedModel.configData){
+      // Load config data from IndexedDB storage
+      let configData: any;
+      try {
+        configData = await loadModelConfig(cachedModel.modelId);
+      } catch (error) {
+        throw Error(`Model ${modelId} config data could not be resolved`);
+      }
+      
+      if (!configData) {
         throw Error(`Model ${modelId} config data could not be resolved`);
       } else {
-        this.eosTokenId = cachedModel.configData.eos_token_id;
-        this.numLayers = cachedModel.configData.num_hidden_layers;
-        const numHeads = cachedModel.configData.num_attention_heads;
-        const numKvHeads = cachedModel.configData.num_kv_heads ?? numHeads;
-        const hiddenSize = cachedModel.configData.hidden_size;
+        this.eosTokenId = configData.eos_token_id;
+        this.numLayers = configData.num_hidden_layers;
+        const numHeads = configData.num_attention_heads;
+        const numKvHeads = configData.num_kv_heads ?? numHeads;
+        const hiddenSize = configData.hidden_size;
         this.kvDims = [1, numKvHeads, 0, hiddenSize / numHeads];
         this.tokenizer = await this.modelList?.getTokenizer(modelId);
         console.log(`Model ${modelId} config data resolved -- and tokenizer loaded`);
@@ -220,13 +244,27 @@ export abstract class BaseONNXHandler {
       let session: InferenceSession | null = null;
       let provider = '';
 
+      // Load external data if it exists
+      let externalData: { path: string, data: ArrayBuffer }[] | undefined;
+      if (cachedModel.modelExDataFileName) {
+        try {
+          const { loadData } = await import('@/core/utils/fetchchunkstore');
+          const externalDataBuffer = await loadData(`${cachedModel.modelId}_external`);
+          if (externalDataBuffer) {
+            externalData = [{ path: `./${cachedModel.modelExDataFileName}`, data: externalDataBuffer }];
+          }
+        } catch (error) {
+          console.warn(`Failed to load external data for ${modelId}:`, error);
+        }
+      }
+
       // Try each provider in order
       for (const providerName of this.availableProviders) {
         try {
           const options: any = {
             ...sessionOptions,
             executionProviders: [providerName],
-            externalData: cachedModel.externalData,
+            externalData,
           }
 
           session = await this.ort.InferenceSession.create(modelData, options);
@@ -436,4 +474,4 @@ export class ONNXProvider extends BaseONNXHandler {
     }
     console.log('All models unloaded')
   }
-} 
+}

@@ -11,12 +11,8 @@ export interface ModelConfig {
     repoBase: string;
     modelFileName: string;
     modelExDataFileName?: string;
-    // loaded model
-    configData?: any;
-    modelData?: ArrayBuffer | Blob;
-    externalData?: { path: string, data: ArrayBuffer | Blob }[];
-    // tokenizer?: any;
-
+    // Note: Heavy data fields (configData, modelData, externalData) removed
+    // Use fetchchunkstore functions to load model data on-demand
 }
 
 export const OnnxModelConfigFill = (id: string, override?: Partial<ModelConfig>): ModelConfig => {
@@ -32,7 +28,19 @@ export const OnnxModelConfigFill = (id: string, override?: Partial<ModelConfig>)
     }
 }
 
-export const OnnxModelFetch = async (config: ModelConfig, progressFn?: (progress: {type:string, msg: string, progress: number, part: string}) => void): Promise<ModelConfig> => {
+// Helper function to store model config data
+const storeModelConfig = async (modelId: string, configData: any): Promise<void> => {
+    const { storeData } = await import('./fetchchunkstore.ts');
+    await storeData(`${modelId}_config`, configData);
+};
+
+// Helper function to load model config data
+export const loadModelConfig = async (modelId: string): Promise<any> => {
+    const { loadData } = await import('./fetchchunkstore.ts');
+    return await loadData(`${modelId}_config`);
+};
+
+export const OnnxModelFetch = async (config: ModelConfig, progressFn?: (progress: {type:string, msg: string, progress: number, part: string}) => void): Promise<void> => {
     const { modelId, urlBase, onnxDir, configFileName, repoBase, modelFileName, modelExDataFileName } = config;
     const { loadOrFetchModel } = await import('./fetchchunkstore.ts');
     const { fetchAndCache } = await import('./fetchncache.ts');
@@ -40,14 +48,19 @@ export const OnnxModelFetch = async (config: ModelConfig, progressFn?: (progress
     const configUrl = `${repoUrl}/${configFileName}`;
     const modelFileUrl = `${repoUrl}/${onnxDir}/${modelFileName}`;
     const modelExDataUrl = `${repoUrl}/${onnxDir}/${modelExDataFileName}`;
-    const [onnxData, configData, modelExData] = await Promise.all([
+    
+    // Download and store model data in IndexedDB using fetchchunkstore
+    await Promise.all([
         // @ts-ignore
         loadOrFetchModel(modelFileUrl, modelId, progressFn),
-        fetchAndCache(configUrl).then(res => res.json()),
+        // Store config data separately with a config-specific key
+        fetchAndCache(configUrl).then(res => res.json()).then(configData => {
+            // Store config in IndexedDB with a special key
+            return storeModelConfig(modelId, configData);
+        }),
         // @ts-ignore
-        modelExDataFileName ? loadOrFetchModel(modelExDataUrl, modelExDataFileName, progressFn) : undefined,
+        modelExDataFileName ? loadOrFetchModel(modelExDataUrl, `${modelId}_external`, progressFn) : Promise.resolve(),
     ]);
-    return { ...config, modelData: onnxData, configData, externalData: modelExData &&[{path: `./${modelExDataFileName}`, data: modelExData}] };
 }
 
 /**
@@ -79,17 +92,20 @@ export class ModelDataList {
         return config;
     }
 
-    async loadModel(modelId: string): Promise<ModelConfig> {
+    async loadModel(modelId: string, progressFn?: (progress: {type:string, msg: string, progress: number, part: string}) => void): Promise<ModelConfig> {
         const config = this.getModelConfig(modelId);
         if (!config) {
             throw new Error(`Model ${modelId} not found`);
         }
-        if (!!config.modelData) {
-            return config;
+        // Check if model data is already stored in IndexedDB
+        const { hasModelData } = await import('./fetchchunkstore.ts');
+        const modelExists = await hasModelData(modelId);
+        if (modelExists) {
+            return config; // Model data exists in storage
         }
-        const latestConfig = await OnnxModelFetch(config);
-        this.modelConfigs.set(modelId, latestConfig);
-        return latestConfig as ModelConfig;
+        // Download and store model data
+        await OnnxModelFetch(config, progressFn);
+        return config;
     }
 
     /**

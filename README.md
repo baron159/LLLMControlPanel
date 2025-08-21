@@ -1,6 +1,178 @@
 # LLM Control Panel
 
-A modern browser extension that brings local AI model inference to your browser using ONNX Runtime. Experience privacy-first AI interactions with powerful language models running entirely on your device.
+A browser extension for managing and controlling Large Language Models locally. This extension provides a middleware layer between local running models and 3rd-party applications that want to utilize AI models for various tasks.
+
+## Features
+
+- **Model Management**: Add, download, and manage ONNX-format language models
+- **Provider Detection**: Automatic detection of available execution providers (WebNN, WebGPU, WASM)
+- **Device Optimization**: Intelligent selection of optimal compute devices
+- **Background Processing**: Service worker architecture for efficient model handling
+- **Storage Management**: Persistent storage for models and configurations
+- **API Interface**: Message-based API for external application integration
+
+## Architecture
+
+The extension consists of several key components:
+
+- **Service Worker** (`src/background/sw.ts`): Core background process managing models and state
+- **ONNX Provider** (`src/core/providers/onnx-provider.ts`): Handles ONNX model loading and inference
+- **Web Worker** (`src/workers/onnx-worker.ts`): Dedicated thread for model execution
+- **Popup Interface** (`src/popup/`): User interface for model management
+- **Content Scripts** (`src/content/`): Integration with web pages
+- **Storage Layer** (`src/core/utils/fetchchunkstore.ts`): Efficient IndexedDB-based storage for model data
+
+```mermaid
+graph TB
+    subgraph "Browser Extension"
+        subgraph "UI Layer"
+            PU[Popup Interface<br/>src/popup/]
+        end
+        
+        subgraph "Background Layer"
+            SW[Service Worker<br/>src/background/sw.ts]
+            OP[ONNX Provider<br/>src/core/providers/]
+        end
+        
+        subgraph "Worker Layer"
+            OW[ONNX Worker<br/>src/workers/onnx-worker.ts]
+        end
+        
+        subgraph "Storage Layer"
+            SL[FetchChunkStore<br/>src/core/utils/fetchchunkstore.ts]
+            IDB[(IndexedDB<br/>Model Data)]
+        end
+        
+        subgraph "Integration Layer"
+            CS[Content Scripts<br/>src/content/]
+        end
+    end
+    
+    subgraph "External"
+        WP[Web Pages]
+        API[JavaScript API]
+    end
+    
+    PU <--> SW
+    SW <--> OP
+    OP <--> OW
+    SW <--> SL
+    SL <--> IDB
+    CS <--> WP
+    CS <--> SW
+    WP <--> API
+    API <--> CS
+    
+    style SW fill:#e3f2fd
+    style OP fill:#f3e5f5
+    style OW fill:#e8f5e8
+    style SL fill:#fff3e0
+    style IDB fill:#fff3e0
+```
+
+### Storage Architecture
+
+The extension uses an optimized storage architecture that separates lightweight configuration data from heavy model blobs:
+
+- **Model Configurations**: Lightweight metadata stored in memory and browser storage
+- **Model Data**: Heavy binary data (ONNX models, tokenizer configs) stored in IndexedDB using chunked storage
+- **On-Demand Loading**: Model data is only loaded when actually needed by workers or providers
+- **Efficient Caching**: Automatic deduplication and chunk-based storage for optimal memory usage
+
+This architecture significantly reduces memory footprint and improves performance by avoiding loading large model files until they're actively used.
+
+## Service Worker API
+
+The service worker provides a message-based API for managing models:
+
+### Status
+```javascript
+chrome.runtime.sendMessage({type: 'status'}, (response) => {
+  console.log('Available models:', response.models);
+  console.log('Selected model:', response.selectedModel);
+  console.log('Providers:', response.providers);
+});
+```
+
+### Add Model
+```javascript
+chrome.runtime.sendMessage({
+  type: 'addModel',
+  model: {
+    id: 'my-model',
+    name: 'My Custom Model',
+    url: 'https://example.com/model.onnx',
+    size: '1.2GB'
+  }
+}, (response) => {
+  console.log('Model added:', response.success);
+});
+```
+
+### Download Model
+```javascript
+chrome.runtime.sendMessage({
+  type: 'downloadModel',
+  modelId: 'my-model'
+}, (response) => {
+  console.log('Download started:', response.success);
+});
+```
+
+For complete API documentation, see [docs/service-worker-api.md](docs/service-worker-api.md).
+
+## Development
+
+### Prerequisites
+- Node.js 16+
+- npm or yarn
+
+### Setup
+```bash
+npm install
+npm run build
+```
+
+### Testing
+Run the service worker test script:
+```bash
+node test-service-worker.js
+```
+
+### Build
+```bash
+npm run build
+```
+
+The built extension will be available in the `dist/` directory.
+
+## Installation
+
+1. Build the extension using `npm run build`
+2. Open Chrome and navigate to `chrome://extensions/`
+3. Enable "Developer mode"
+4. Click "Load unpacked" and select the `dist/` directory
+
+## Contributing
+
+When contributing to this project:
+
+1. Ensure all builds pass successfully
+2. Follow existing code patterns and conventions
+3. Update documentation for new features
+4. Test thoroughly before submitting changes
+
+The code reviewer requires that builds pass and functionality is never gutted to achieve passing builds.
+
+## License
+
+MIT License - see LICENSE file for details.
+
+---
+
+## Legacy Documentation
+
+The following sections contain the original documentation for reference:
 
 ## Features
 
@@ -81,6 +253,39 @@ if (window.llmControlPanel) {
   );
   console.log(response);
 }
+```
+
+#### Model Inference Workflow
+
+```mermaid
+sequenceDiagram
+    participant WP as Web Page
+    participant CS as Content Script
+    participant SW as Service Worker
+    participant OP as ONNX Provider
+    participant SL as Storage Layer
+    participant OW as ONNX Worker
+    
+    WP->>CS: llmControlPanel.generateResponse()
+    CS->>SW: Message: generate_response
+    SW->>OP: loadModel(modelId)
+    
+    alt Model not in memory
+        OP->>SL: loadOrFetchModel(modelId)
+        SL->>SL: Load from IndexedDB
+        SL-->>OP: Model data
+    end
+    
+    OP->>OW: Load model in worker
+    OW-->>OP: Model ready
+    OP->>OW: Run inference
+    OW->>OW: Process with ONNX Runtime
+    OW-->>OP: Generated response
+    OP-->>SW: Response
+    SW-->>CS: Response message
+    CS-->>WP: Generated text
+    
+    Note over WP,OW: All processing happens locally in browser
 ```
 
 ### API Reference
@@ -260,4 +465,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ---
 
-**Note**: This is a development version. For production use, ensure all models are properly licensed and comply with their respective terms of use. 
+**Note**: This is a development version. For production use, ensure all models are properly licensed and comply with their respective terms of use.

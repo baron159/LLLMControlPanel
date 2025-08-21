@@ -1,3 +1,5 @@
+import { ThemeManager } from '../../core/utils/theme-manager'
+
 export interface ModelConfig {
   modelId: string
   modelName: string
@@ -5,8 +7,6 @@ export interface ModelConfig {
   description: string
   url: string
 }
-
-import { ThemeManager } from '../../core/utils/theme-manager'
 
 export class SettingsView extends HTMLElement {
   private models: ModelConfig[] = [
@@ -548,4 +548,4 @@ export class SettingsView extends HTMLElement {
   }
 }
 
-customElements.define('settings-view', SettingsView) 
+customElements.define('settings-view', SettingsView)

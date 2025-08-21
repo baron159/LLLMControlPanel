@@ -177,3 +177,33 @@ export async function loadOrFetchModel(
     progressCallback?.({ type: 'complete', modelId, totalBytes });
     return out.buffer;
 }
+
+// Generic data storage functions for JSON/config data
+export async function storeData(key: string, data: any): Promise<void> {
+    const db = await openDb();
+    return new Promise((res, rej) => {
+        const tx = db.transaction('chunks', 'readwrite');
+        const store = tx.objectStore('chunks');
+        const req = store.put(data, key);
+        req.onsuccess = () => res();
+        req.onerror = () => rej(req.error);
+    });
+}
+
+export async function loadData(key: string): Promise<any> {
+    const db = await openDb();
+    return new Promise((res, rej) => {
+        const tx = db.transaction('chunks', 'readonly');
+        const store = tx.objectStore('chunks');
+        const req = store.get(key);
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+    });
+}
+
+// Check if model data exists in storage
+export async function hasModelData(modelId: string): Promise<boolean> {
+    const db = await openDb();
+    const meta = await getModelMeta(db, modelId);
+    return !!meta;
+}

@@ -1,0 +1,225 @@
+# Service Worker API Documentation
+
+The LLM Control Panel service worker provides a centralized way to manage AI models, their configurations, and download state. It runs in the background and handles communication between different parts of the extension.
+
+## Overview
+
+The service worker maintains:
+- Model configurations and metadata
+- Current selected model
+- Available execution providers (WebNN, WebGPU, WASM)
+- WebNN device information
+- Model download status
+
+## Message API
+
+The service worker communicates via Chrome's runtime messaging API. All messages follow this pattern:
+
+```javascript
+const response = await chrome.runtime.sendMessage({
+  type: 'messageType',
+  // additional parameters
+});
+```
+
+### Available Message Types
+
+#### 1. `status`
+
+Returns the current state of the service worker.
+
+**Request:**
+```javascript
+chrome.runtime.sendMessage({ type: 'status' })
+```
+
+**Response:**
+```javascript
+{
+  success: true,
+  data: {
+    modelIds: string[],              // List of configured model IDs
+    currentSelectedModel: string | null,  // Currently selected model
+    availableProviders: string[],    // Available execution providers
+    webnnDevices: any[],            // Available WebNN devices
+    preferredDevice: any,           // Preferred WebNN device
+    downloadedModels: string[]      // Models that are downloaded
+  }
+}
+```
+
+#### 2. `addModel`
+
+Adds a new model configuration to the system.
+
+**Request:**
+```javascript
+chrome.runtime.sendMessage({
+  type: 'addModel',
+  modelConfig: {
+    modelId: 'microsoft/DialoGPT-medium',
+    urlBase: 'https://huggingface.co',
+    onnxDir: 'onnx',
+    configFileName: 'config.json',
+    repoBase: 'resolve/main',
+    modelFileName: 'model.onnx',
+    modelExDataFileName: 'model_external_data.bin' // optional
+  }
+})
+```
+
+**Response:**
+```javascript
+{
+  success: boolean,
+  message: string
+}
+```
+
+#### 3. `downloadModel`
+
+Downloads a model that has been added to the configuration.
+
+**Request:**
+```javascript
+chrome.runtime.sendMessage({
+  type: 'downloadModel',
+  modelId: 'microsoft/DialoGPT-medium'
+})
+```
+
+**Response:**
+```javascript
+{
+  success: boolean,
+  message: string,
+  progress?: number  // Download progress (0-100)
+}
+```
+
+#### 4. `setSelectedModel`
+
+Sets the currently selected model for inference.
+
+**Request:**
+```javascript
+chrome.runtime.sendMessage({
+  type: 'setSelectedModel',
+  modelId: 'microsoft/DialoGPT-medium'
+})
+```
+
+**Response:**
+```javascript
+{
+  success: boolean,
+  message: string
+}
+```
+
+## Model Configuration Format
+
+The `ModelConfig` interface defines how models are configured:
+
+```typescript
+interface ModelConfig {
+  modelId: string;                    // Unique identifier (e.g., 'user/repo')
+  urlBase: string;                   // Base URL (default: 'https://huggingface.co')
+  onnxDir: string;                   // ONNX directory (default: 'onnx')
+  configFileName: string;            // Config file name (default: 'config.json')
+  repoBase: string;                  // Repository base path (default: 'resolve/main')
+  modelFileName: string;             // Model file name (default: 'model.onnx')
+  modelExDataFileName?: string;      // External data file (optional)
+  
+  // Runtime properties (set by service worker)
+  configData?: any;                  // Loaded configuration
+  modelData?: ArrayBuffer | Blob;    // Model binary data
+  externalData?: { path: string, data: ArrayBuffer | Blob }[];
+}
+```
+
+## Usage Examples
+
+### Basic Model Management
+
+```javascript
+// Add a new model
+const addResult = await chrome.runtime.sendMessage({
+  type: 'addModel',
+  modelConfig: {
+    modelId: 'Xenova/TinyLlama-1.1B-Chat-v1.0',
+    urlBase: 'https://huggingface.co',
+    onnxDir: 'onnx',
+    configFileName: 'config.json',
+    repoBase: 'resolve/main',
+    modelFileName: 'model.onnx'
+  }
+});
+
+if (addResult.success) {
+  // Download the model
+  const downloadResult = await chrome.runtime.sendMessage({
+    type: 'downloadModel',
+    modelId: 'Xenova/TinyLlama-1.1B-Chat-v1.0'
+  });
+  
+  if (downloadResult.success) {
+    // Set as selected model
+    await chrome.runtime.sendMessage({
+      type: 'setSelectedModel',
+      modelId: 'Xenova/TinyLlama-1.1B-Chat-v1.0'
+    });
+  }
+}
+```
+
+### Checking System Status
+
+```javascript
+const status = await chrome.runtime.sendMessage({ type: 'status' });
+
+console.log('Available models:', status.data.modelIds);
+console.log('Selected model:', status.data.currentSelectedModel);
+console.log('Downloaded models:', status.data.downloadedModels);
+console.log('Available providers:', status.data.availableProviders);
+```
+
+## Storage
+
+The service worker persists data using:
+- **Chrome Storage API**: For model configurations and settings
+- **IndexedDB**: For downloaded model binaries and chunks
+- **Cache API**: For configuration files and metadata
+
+## Error Handling
+
+All service worker responses include a `success` boolean and `message` string. Always check the `success` field before proceeding:
+
+```javascript
+const response = await chrome.runtime.sendMessage({ type: 'status' });
+
+if (response.success) {
+  // Handle successful response
+  console.log('Data:', response.data);
+} else {
+  // Handle error
+  console.error('Error:', response.message);
+}
+```
+
+## Future Enhancements
+
+The service worker is designed to be extended with:
+- Model inference coordination with Web Workers
+- Progress tracking for downloads
+- Model caching and cleanup policies
+- Performance monitoring
+- Model validation and security checks
+
+## Testing
+
+Use the provided `test-service-worker.js` script to test the service worker functionality:
+
+1. Load the extension in Chrome
+2. Open the browser console
+3. Run the test script to verify all message types work correctly
