@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test LLM Control Panel Approval System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <h1>LLM Control Panel Approval System Test</h1>
+    
+    <div class="test-section">
+        <h2>Test App Approval Request</h2>
+        <p>This page simulates a third-party application requesting approval to use the LLM Control Panel.</p>
+        
+        <button onclick="requestApproval()">Request Approval</button>
+        <button onclick="checkApprovalStatus()">Check Approval Status</button>
+        
+        <div id="status"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Instructions</h2>
+        <ol>
+            <li>Load the LLM Control Panel extension in Chrome</li>
+            <li>Open this test page</li>
+            <li>Click "Request Approval" to trigger an approval request</li>
+            <li>The extension popup should open with an approval dialog</li>
+            <li>Approve or reject the request in the popup</li>
+            <li>Click "Check Approval Status" to verify the result</li>
+        </ol>
+    </div>
+
+    <script>
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+        }
+
+        async function requestApproval() {
+            try {
+                showStatus('Requesting approval...', 'info');
+                
+                if (typeof window.llmCtl === 'undefined') {
+                    showStatus('LLM Control Panel extension not detected. Please install and enable the extension.', 'error');
+                    return;
+                }
+                
+                const result = await window.llmCtl.requestApproval({
+                    name: 'Test Application',
+                    description: 'A test application to verify the approval system functionality',
+                    requestedPermissions: ['model-access', 'generate-response']
+                });
+                
+                showStatus(`Approval request result: ${JSON.stringify(result)}`, 'success');
+            } catch (error) {
+                showStatus(`Error requesting approval: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkApprovalStatus() {
+            try {
+                showStatus('Checking approval status...', 'info');
+                
+                if (typeof window.llmCtl === 'undefined') {
+                    showStatus('LLM Control Panel extension not detected. Please install and enable the extension.', 'error');
+                    return;
+                }
+                
+                const result = await window.llmCtl.checkApprovalStatus();
+                
+                if (result.approved) {
+                    showStatus('✅ This application is approved!', 'success');
+                } else {
+                    showStatus('❌ This application is not approved.', 'error');
+                }
+            } catch (error) {
+                showStatus(`Error checking approval status: ${error.message}`, 'error');
+            }
+        }
+
+        // Check if extension is available on page load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                if (typeof window.llmCtl === 'undefined') {
+                    showStatus('LLM Control Panel extension not detected. Please install and enable the extension.', 'error');
+                } else {
+                    showStatus('LLM Control Panel extension detected. Ready to test!', 'success');
+                }
+            }, 1000); // Wait a bit for the extension to inject the API
+        });
+    </script>
+</body>
+</html>

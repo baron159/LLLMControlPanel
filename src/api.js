@@ -3,7 +3,7 @@
   'use strict';
   
   // Create the API object
-  window.llmControlPanel = {
+  window.llmCtl = {
     async generateResponse(prompt, modelId) {
       return this.sendRequest('generate-response', { prompt, modelId });
     },
@@ -96,9 +96,35 @@
       } catch (error) {
         return false;
       }
+    },
+
+    // Request approval for 3rd party app access
+    async requestApproval(appInfo) {
+      if (!appInfo || !appInfo.name || !appInfo.origin) {
+        throw new Error('App info with name and origin is required');
+      }
+      
+      // Set default permissions if not provided
+      const defaultPermissions = ['model-access', 'generate-response'];
+      const requestedPermissions = appInfo.requestedPermissions || defaultPermissions;
+      
+      const fullAppInfo = {
+        name: appInfo.name,
+        origin: appInfo.origin || window.location.origin,
+        description: appInfo.description || `Access request from ${appInfo.name}`,
+        requestedPermissions
+      };
+      
+      return this.sendRequest('approval-request', { appInfo: fullAppInfo });
+    },
+
+    // Check if current app is approved
+    async checkApprovalStatus() {
+      const origin = window.location.origin;
+      return this.sendRequest('check-app-approval', { origin });
     }
   };
   
   // Dispatch event when the API is ready
   window.dispatchEvent(new CustomEvent('llmControlPanelReady'));
-})(); 
+})();

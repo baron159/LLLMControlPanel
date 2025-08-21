@@ -214,6 +214,38 @@ window.addEventListener('message', async (event) => {
           })
           break
           
+        case 'approval-request':
+          const { appInfo } = data
+          response = await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({
+              type: 'approvalRequest',
+              appInfo
+            }, (response) => {
+              if (response.success) {
+                resolve(response)
+              } else {
+                reject(new Error(response.error))
+              }
+            })
+          })
+          break
+          
+        case 'check-app-approval':
+          const { origin } = data
+          response = await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({
+              type: 'checkAppApproval',
+              origin
+            }, (response) => {
+              if (response.success) {
+                resolve(response)
+              } else {
+                reject(new Error(response.error))
+              }
+            })
+          })
+          break
+          
         default:
           throw new Error(`Unknown action: ${action}`)
       }
@@ -240,4 +272,4 @@ window.addEventListener('message', async (event) => {
 // Clean up when script is removed
 document.addEventListener('DOMContentLoaded', () => {
   console.log('LLM Control Panel content script initialized')
-}) 
+})

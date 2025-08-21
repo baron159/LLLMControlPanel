@@ -10,17 +10,19 @@ A browser extension for managing and controlling Large Language Models locally. 
 - **Background Processing**: Service worker architecture for efficient model handling
 - **Storage Management**: Persistent storage for models and configurations
 - **API Interface**: Message-based API for external application integration
+- **Third-Party App Approval**: Secure approval system for controlling access to LLM functionality
 
 ## Architecture
 
 The extension consists of several key components:
 
-- **Service Worker** (`src/background/sw.ts`): Core background process managing models and state
+- **Service Worker** (`src/background/sw.ts`): Core background process managing models, state, and app approvals
 - **ONNX Provider** (`src/core/providers/onnx-provider.ts`): Handles ONNX model loading and inference
 - **Web Worker** (`src/workers/onnx-worker.ts`): Dedicated thread for model execution
-- **Popup Interface** (`src/popup/`): User interface for model management
-- **Content Scripts** (`src/content/`): Integration with web pages
+- **Popup Interface** (`src/popup/`): User interface for model management and app approval
+- **Content Scripts** (`src/content/`): Integration with web pages and approval request routing
 - **Storage Layer** (`src/core/utils/fetchchunkstore.ts`): Efficient IndexedDB-based storage for model data
+- **API Layer** (`api.js`): Public API for third-party applications including approval requests
 
 ```mermaid
 graph TB
@@ -120,6 +122,48 @@ chrome.runtime.sendMessage({
 ```
 
 For complete API documentation, see [docs/service-worker-api.md](docs/service-worker-api.md).
+
+## Third-Party App Approval System
+
+The LLM Control Panel includes a comprehensive approval system that allows users to control which third-party applications can access the extension's functionality.
+
+### Key Features
+
+- **User Control**: Explicit approval required for third-party app access
+- **Persistent Storage**: Approval decisions persist across browser sessions
+- **Permission Management**: Fine-grained control over app permissions
+- **Secure Origin-Based**: Approvals tied to specific domains/origins
+
+### For Third-Party Developers
+
+To integrate with the LLM Control Panel:
+
+```javascript
+// Request approval from user
+const result = await window.llmCtl.requestApproval({
+  name: 'My AI Assistant',
+  description: 'A productivity tool for writing tasks',
+  requestedPermissions: ['model-access', 'generate-response']
+});
+
+if (result.approved) {
+  // Proceed with LLM operations
+  const response = await window.llmCtl.generateResponse({
+    prompt: 'Hello, world!',
+    maxTokens: 100
+  });
+}
+```
+
+### Testing
+
+Use the included test file to verify approval system functionality:
+
+1. Load the extension in Chrome
+2. Open `test-approval.html` in your browser
+3. Test the approval flow
+
+📖 **Detailed Documentation**: See [docs/approval-system.md](docs/approval-system.md) for complete API reference and implementation details.
 
 ## Development
 

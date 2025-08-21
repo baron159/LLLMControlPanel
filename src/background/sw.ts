@@ -6,12 +6,36 @@
 import { ModelConfig, ModelDataList, OnnxModelConfigFill } from '../core/utils/model.list';
 import { WebNNUtils } from '../core/utils/webnn-utils';
 
+interface ApprovedApp {
+  id: string;
+  name: string;
+  origin: string;
+  description?: string;
+  approvedAt: number;
+  permissions: string[];
+}
+
+interface ApprovalRequest {
+  id: string;
+  appInfo: {
+    name: string;
+    origin: string;
+    description?: string;
+    requestedPermissions: string[];
+  };
+  requestedAt: number;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
 interface ServiceWorkerState {
   modelList: ModelDataList;
   currentSelectedModel: string | null;
   availableProviders: string[];
   webnnDevices: any[];
   preferredDevice: any;
+  approvedApps: Map<string, ApprovedApp>;
+  approvedModelConfigs: Map<string, ModelConfig>;
+  pendingApprovalRequests: Map<string, ApprovalRequest>;
 }
 
 class LLMServiceWorker {
@@ -26,7 +50,10 @@ class LLMServiceWorker {
       currentSelectedModel: null,
       availableProviders: [],
       webnnDevices: [],
-      preferredDevice: null
+      preferredDevice: null,
+      approvedApps: new Map<string, ApprovedApp>(),
+      approvedModelConfigs: new Map<string, ModelConfig>(),
+      pendingApprovalRequests: new Map<string, ApprovalRequest>()
     };
   }
 
@@ -80,7 +107,12 @@ class LLMServiceWorker {
 
   private async loadModelConfigsFromStorage(): Promise<void> {
     try {
-      const result = await chrome.storage.local.get(['modelConfigs', 'selectedModel']);
+      const result = await chrome.storage.local.get([
+        'modelConfigs', 
+        'selectedModel', 
+        'approvedApps', 
+        'approvedModelConfigs'
+      ]);
       
       if (result.modelConfigs && Array.isArray(result.modelConfigs)) {
         this.state.modelList = new ModelDataList(result.modelConfigs);
@@ -88,6 +120,16 @@ class LLMServiceWorker {
       
       if (result.selectedModel && typeof result.selectedModel === 'string') {
         this.state.currentSelectedModel = result.selectedModel;
+      }
+      
+      // Load approved apps
+      if (result.approvedApps && Array.isArray(result.approvedApps)) {
+        this.state.approvedApps = new Map(result.approvedApps.map((app: ApprovedApp) => [app.id, app]));
+      }
+      
+      // Load approved model configs
+      if (result.approvedModelConfigs && Array.isArray(result.approvedModelConfigs)) {
+        this.state.approvedModelConfigs = new Map(result.approvedModelConfigs.map((config: ModelConfig) => [config.modelId, config]));
       }
       
     } catch (error) {
@@ -101,7 +143,9 @@ class LLMServiceWorker {
         modelConfigs: this.state.modelList.currentModelList.map(id => 
           this.state.modelList.getModelConfig(id)
         ).filter(Boolean),
-        selectedModel: this.state.currentSelectedModel
+        selectedModel: this.state.currentSelectedModel,
+        approvedApps: Array.from(this.state.approvedApps.values()),
+        approvedModelConfigs: Array.from(this.state.approvedModelConfigs.values())
       });
     } catch (error) {
       console.error('Failed to save model configs to storage:', error);
@@ -262,6 +306,126 @@ class LLMServiceWorker {
       return { success: false, message: `Failed to select model: ${error}` };
     }
   }
+
+  async handleApprovalRequest(appInfo: {
+    name: string;
+    origin: string;
+    description?: string;
+    requestedPermissions: string[];
+  }): Promise<{ success: boolean; message: string; requestId?: string }> {
+    try {
+      const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const approvalRequest: ApprovalRequest = {
+        id: requestId,
+        appInfo,
+        requestedAt: Date.now(),
+        status: 'pending'
+      };
+      
+      this.state.pendingApprovalRequests.set(requestId, approvalRequest);
+      
+      // Trigger popup to show approval request
+      await this.showApprovalPopup(requestId);
+      
+      console.log(`Approval request created: ${requestId} for app: ${appInfo.name}`);
+      return { success: true, message: 'Approval request created', requestId };
+      
+    } catch (error) {
+      console.error('Failed to handle approval request:', error);
+      return { success: false, message: `Failed to create approval request: ${error}` };
+    }
+  }
+
+  private async showApprovalPopup(requestId: string): Promise<void> {
+    try {
+      // Open popup window to show approval request
+      await chrome.action.openPopup();
+      
+      // Send message to popup with approval request details
+      const request = this.state.pendingApprovalRequests.get(requestId);
+      if (request) {
+        chrome.runtime.sendMessage({
+          type: 'showApprovalRequest',
+          requestId,
+          appInfo: request.appInfo
+        });
+      }
+    } catch (error) {
+      console.error('Failed to show approval popup:', error);
+    }
+  }
+
+  async handleApprovalResponse(requestId: string, approved: boolean): Promise<{ success: boolean; message: string }> {
+    try {
+      const request = this.state.pendingApprovalRequests.get(requestId);
+      if (!request) {
+        return { success: false, message: 'Approval request not found' };
+      }
+      
+      if (approved) {
+        // Create approved app entry
+        const approvedApp: ApprovedApp = {
+          id: `app_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          name: request.appInfo.name,
+          origin: request.appInfo.origin,
+          description: request.appInfo.description,
+          approvedAt: Date.now(),
+          permissions: request.appInfo.requestedPermissions
+        };
+        
+        this.state.approvedApps.set(approvedApp.id, approvedApp);
+        request.status = 'approved';
+        
+        console.log(`App approved: ${approvedApp.name} (${approvedApp.origin})`);
+      } else {
+        request.status = 'rejected';
+        console.log(`App rejected: ${request.appInfo.name} (${request.appInfo.origin})`);
+      }
+      
+      // Remove from pending requests
+      this.state.pendingApprovalRequests.delete(requestId);
+      
+      // Save to storage
+      await this.saveModelConfigsToStorage();
+      
+      return { 
+        success: true, 
+        message: approved ? 'App approved successfully' : 'App rejected successfully' 
+      };
+      
+    } catch (error) {
+      console.error('Failed to handle approval response:', error);
+      return { success: false, message: `Failed to process approval: ${error}` };
+    }
+  }
+
+  isAppApproved(origin: string): boolean {
+    return Array.from(this.state.approvedApps.values()).some(app => app.origin === origin);
+  }
+
+  getApprovedApps(): ApprovedApp[] {
+    return Array.from(this.state.approvedApps.values());
+  }
+
+  async revokeAppApproval(appId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const app = this.state.approvedApps.get(appId);
+      if (!app) {
+        return { success: false, message: 'App not found' };
+      }
+      
+      this.state.approvedApps.delete(appId);
+      await this.saveModelConfigsToStorage();
+      
+      console.log(`App approval revoked: ${app.name} (${app.origin})`);
+      return { success: true, message: 'App approval revoked successfully' };
+      
+    } catch (error) {
+      console.error('Failed to revoke app approval:', error);
+      return { success: false, message: `Failed to revoke approval: ${error}` };
+    }
+  }
 }
 
 // Global service worker instance
@@ -300,6 +464,39 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             return { success: false, message: 'Model ID is required' };
           }
           return await llmServiceWorker.setSelectedModel(message.modelId);
+          
+        case 'approvalRequest':
+          if (!message.appInfo) {
+            return { success: false, message: 'App info is required' };
+          }
+          return await llmServiceWorker.handleApprovalRequest(message.appInfo);
+          
+        case 'approvalResponse':
+          if (!message.requestId || typeof message.approved !== 'boolean') {
+            return { success: false, message: 'Request ID and approval status are required' };
+          }
+          return await llmServiceWorker.handleApprovalResponse(message.requestId, message.approved);
+          
+        case 'getApprovedApps':
+          return {
+            success: true,
+            data: llmServiceWorker.getApprovedApps()
+          };
+          
+        case 'revokeAppApproval':
+          if (!message.appId) {
+            return { success: false, message: 'App ID is required' };
+          }
+          return await llmServiceWorker.revokeAppApproval(message.appId);
+          
+        case 'checkAppApproval':
+          if (!message.origin) {
+            return { success: false, message: 'Origin is required' };
+          }
+          return {
+            success: true,
+            data: { approved: llmServiceWorker.isAppApproved(message.origin) }
+          };
           
         default:
           return { success: false, message: 'Unknown message type' };

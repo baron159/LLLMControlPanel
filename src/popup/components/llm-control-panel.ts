@@ -10,12 +10,14 @@ import { ThemeManager } from '../../core/utils/theme-manager'
 export class LLMControlPanel extends HTMLElement {
   private currentView: 'apps' | 'activity' = 'apps'
   private themeManager = ThemeManager.getInstance()
+  private currentApprovalRequest: any = null
 
   constructor() {
     super()
     this.attachShadow({ mode: 'open' })
     console.log('LLMControlPanel constructor called')
     this.initializeTheme()
+    this.setupApprovalRequestListener()
   }
 
   connectedCallback() {
@@ -127,8 +129,116 @@ export class LLMControlPanel extends HTMLElement {
         <span slot="title">About</span>
         <about-view></about-view>
       </sliding-pane>
+      
+      <sliding-pane id="approval-pane">
+        <span slot="title">App Approval Request</span>
+        <div id="approval-content">
+          ${this.renderApprovalRequest()}
+        </div>
+      </sliding-pane>
     `
     console.log('LLMControlPanel render completed')
+  }
+  
+  private renderApprovalRequest(): string {
+    if (!this.currentApprovalRequest) {
+      return '<p>No pending approval requests.</p>'
+    }
+    
+    const { appInfo } = this.currentApprovalRequest
+    return `
+      <div class="approval-request">
+        <h3>App Access Request</h3>
+        <div class="app-info">
+          <p><strong>App Name:</strong> ${appInfo.name}</p>
+          <p><strong>Origin:</strong> ${appInfo.origin}</p>
+          <p><strong>Description:</strong> ${appInfo.description || 'No description provided'}</p>
+          <p><strong>Requested Permissions:</strong></p>
+          <ul>
+            ${appInfo.requestedPermissions.map((perm: string) => `<li>${perm}</li>`).join('')}
+          </ul>
+        </div>
+        <div class="approval-actions">
+          <button id="approve-btn" class="btn btn-primary">Approve</button>
+          <button id="reject-btn" class="btn btn-secondary">Reject</button>
+        </div>
+      </div>
+      <style>
+        .approval-request {
+          padding: 16px;
+        }
+        .app-info {
+          margin: 16px 0;
+          padding: 12px;
+          background: #f5f5f5;
+          border-radius: 4px;
+        }
+        .dark .app-info {
+          background: #333;
+        }
+        .approval-actions {
+          display: flex;
+          gap: 8px;
+          margin-top: 16px;
+        }
+        .btn {
+          padding: 8px 16px;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        .btn-primary {
+          background: #007bff;
+          color: white;
+        }
+        .btn-secondary {
+          background: #6c757d;
+          color: white;
+        }
+        .btn:hover {
+          opacity: 0.8;
+        }
+      </style>
+    `
+  }
+  
+  private setupApprovalRequestListener() {
+    chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
+      if (message.type === 'showApprovalRequest') {
+        this.currentApprovalRequest = {
+          requestId: message.requestId,
+          appInfo: message.appInfo
+        }
+        this.showApprovalPane()
+      }
+    })
+  }
+  
+  private showApprovalPane() {
+    this.render() // Re-render to update approval content
+    const approvalPane = this.shadowRoot?.querySelector('#approval-pane') as any
+    if (approvalPane) {
+      approvalPane.show()
+    }
+  }
+  
+  private handleApprovalResponse(approved: boolean) {
+    if (!this.currentApprovalRequest) return
+    
+    chrome.runtime.sendMessage({
+      type: 'approvalResponse',
+      requestId: this.currentApprovalRequest.requestId,
+      approved: approved,
+      appInfo: this.currentApprovalRequest.appInfo
+    })
+    
+    // Clear current request and close pane
+    this.currentApprovalRequest = null
+    const approvalPane = this.shadowRoot?.querySelector('#approval-pane') as any
+    if (approvalPane) {
+      approvalPane.hide()
+    }
   }
 
   private setupEventListeners() {
@@ -188,9 +298,18 @@ export class LLMControlPanel extends HTMLElement {
       // The main view is already visible, so no additional action needed
       // but we can add any cleanup logic here if needed
     })
+    
+    // Approval request button handlers
+    this.shadowRoot.addEventListener('click', (e: any) => {
+      if (e.target.id === 'approve-btn') {
+        this.handleApprovalResponse(true)
+      } else if (e.target.id === 'reject-btn') {
+        this.handleApprovalResponse(false)
+      }
+    })
 
     console.log('LLMControlPanel: Event listeners setup completed')
   }
 }
 
-customElements.define('llm-control-panel', LLMControlPanel) 
+customElements.define('llm-control-panel', LLMControlPanel)
