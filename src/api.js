@@ -57,6 +57,12 @@
       return new Promise((resolve, reject) => {
         const id = Date.now() + Math.random();
         
+        // Check if content script is available
+        if (!document.querySelector('script[src*="api.js"]')) {
+          reject(new Error('Extension context invalidated. Please reload the extension and refresh this page.'));
+          return;
+        }
+        
         // Listen for response
         const listener = (event) => {
           if (event.data.type === 'llm-control-panel-response' && 
@@ -83,7 +89,7 @@
         // Timeout after 30 seconds
         setTimeout(() => {
           window.removeEventListener('message', listener);
-          reject(new Error('Request timeout'));
+          reject(new Error('Request timeout. Extension may not be responding.'));
         }, 30000);
       });
     },
