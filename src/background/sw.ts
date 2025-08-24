@@ -339,18 +339,26 @@ class LLMServiceWorker {
 
   private async showApprovalPopup(requestId: string): Promise<void> {
     try {
-      // Open popup window to show approval request
-      await chrome.action.openPopup();
+      // Create a popup window for approval request
+      await chrome.windows.create({
+        url: chrome.runtime.getURL('popup/index.html'),
+        type: 'popup',
+        width: 400,
+        height: 600,
+        focused: true
+      });
       
-      // Send message to popup with approval request details
-      const request = this.state.pendingApprovalRequests.get(requestId);
-      if (request) {
-        chrome.runtime.sendMessage({
-          type: 'showApprovalRequest',
-          requestId,
-          appInfo: request.appInfo
-        });
-      }
+      // Wait a moment for the popup to load, then send the approval request
+      setTimeout(() => {
+        const request = this.state.pendingApprovalRequests.get(requestId);
+        if (request) {
+          chrome.runtime.sendMessage({
+            type: 'showApprovalRequest',
+            requestId,
+            appInfo: request.appInfo
+          });
+        }
+      }, 500);
     } catch (error) {
       console.error('Failed to show approval popup:', error);
     }

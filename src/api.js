@@ -98,11 +98,17 @@
       }
     },
 
-    // Request approval for 3rd party app access
+    /**
+     * Request approval for 3rd party app access
+     * @param {Record<string, string|number|string[]>} appInfo - Must have a name & string key (name - all lower case - no whitespace)
+     *   All other keys are optional {description | requestedPermission}
+     * @returns 
+     */
     async requestApproval(appInfo) {
-      if (!appInfo || !appInfo.name || !appInfo.origin) {
+      if (!appInfo || !appInfo.name || !appInfo.stringKey) {
         throw new Error('App info with name and origin is required');
       }
+      appInfo.origin = window.location.origin;
       
       // Set default permissions if not provided
       const defaultPermissions = ['model-access', 'generate-response'];

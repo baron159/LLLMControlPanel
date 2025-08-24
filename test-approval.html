@@ -93,7 +93,8 @@
                 }
                 
                 const result = await window.llmCtl.requestApproval({
-                    name: 'Test Application',
+                    name: 'Approval test',
+                    stringKey: 'approval.test',
                     description: 'A test application to verify the approval system functionality',
                     requestedPermissions: ['model-access', 'generate-response']
                 });
