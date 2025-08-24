@@ -215,6 +215,15 @@ export class LLMControlPanel extends HTMLElement {
     })
   }
   
+  // Public method to show approval request (called from popup initialization)
+  public showApprovalRequest(requestId: string, appInfo: any) {
+    this.currentApprovalRequest = {
+      requestId,
+      appInfo
+    }
+    this.showApprovalPane()
+  }
+  
   private showApprovalPane() {
     this.render() // Re-render to update approval content
     const approvalPane = this.shadowRoot?.querySelector('#approval-pane') as any
