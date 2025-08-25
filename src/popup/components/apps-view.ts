@@ -18,6 +18,7 @@ interface ApprovedAppFromSW {
 export class AppsView extends HTMLElement {
   private apps: App[] = []
   private filter: 'my-apps' | 'trending' = 'my-apps'
+  private revoking: Set<string> = new Set()
 
   constructor() {
     super()
@@ -102,6 +103,23 @@ export class AppsView extends HTMLElement {
           this.render()
         }
         resolve()
+      })
+    })
+  }
+
+  private async revokeApp(appId: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.revoking.add(appId)
+      this.render()
+      chrome.runtime.sendMessage({ type: 'revokeAppApproval', appId }, async (response) => {
+        this.revoking.delete(appId)
+        if (response && response.success) {
+          await this.refreshApprovedApps()
+          resolve(true)
+        } else {
+          this.render()
+          resolve(false)
+        }
       })
     })
   }
@@ -269,6 +287,11 @@ export class AppsView extends HTMLElement {
                   <div class="app-domain">${app.domain}</div>
                   <div class="app-permissions">${app.permissions}</div>
                 </div>
+                <div>
+                  <button class="filter-tab revoke-btn" data-app-id="${app.id}" ${this.revoking.has(app.id) ? 'disabled' : ''}>
+                    ${this.revoking.has(app.id) ? 'Revoking...' : 'Revoke'}
+                  </button>
+                </div>
               </div>
             `).join('') :
             `<div class="empty-state">
@@ -279,6 +302,8 @@ export class AppsView extends HTMLElement {
         </div>
       </div>
     `
+    // Re-bind events after render, since innerHTML replacement removes listeners
+    this.setupEventListeners()
   }
 
   private setupEventListeners() {
@@ -309,6 +334,18 @@ export class AppsView extends HTMLElement {
         const appId = target.dataset.appId
         const app = this.apps.find(a => a.id === appId)
         if (app) this.showAppDetails(app)
+      })
+    })
+
+    // Revoke buttons
+    this.shadowRoot.querySelectorAll('.revoke-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        console.log('[apps-view] revoke click')
+        e.stopPropagation()
+        const target = e.currentTarget as HTMLButtonElement
+        const appId = target.dataset.appId as string
+        console.log('[apps-view] revoke appId:', appId)
+        await this.revokeApp(appId)
       })
     })
   }
