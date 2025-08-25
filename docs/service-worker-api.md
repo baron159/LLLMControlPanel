@@ -117,6 +117,116 @@ chrome.runtime.sendMessage({
 }
 ```
 
+#### 5. `getApprovedApps`
+
+Returns the list of approved third-party apps.
+
+**Request:**
+```javascript
+chrome.runtime.sendMessage({ type: 'getApprovedApps' })
+```
+
+**Response:**
+```javascript
+{
+  success: true,
+  data: [
+    {
+      id: string,
+      name: string,
+      origin: string,
+      description?: string,
+      approvedAt: number,
+      permissions: string[]
+    }
+  ]
+}
+```
+
+#### 6. `refreshApprovedApps`
+
+Reloads approved apps from storage and returns the current list. Useful for UI refresh controls.
+
+**Request:**
+```javascript
+chrome.runtime.sendMessage({ type: 'refreshApprovedApps' })
+```
+
+**Response:**
+```javascript
+{
+  success: true,
+  data: [ /* same shape as getApprovedApps */ ]
+}
+```
+
+#### 7. `approvalRequest`
+
+Creates a pending approval request for a third-party application. Typically initiated by `window.llmCtl.requestApproval()` routed through the content script.
+
+**Request:**
+```javascript
+chrome.runtime.sendMessage({
+  type: 'approvalRequest',
+  appInfo: {
+    name: 'My App',
+    origin: location.origin,
+    description: 'Optional description',
+    requestedPermissions: ['model-access', 'generate-response']
+  }
+})
+```
+
+**Response:**
+```javascript
+{
+  success: boolean,
+  message: string,
+  requestId?: string
+}
+```
+
+#### 8. `approvalResponse`
+
+Sends the user's decision from the popup UI.
+
+**Request:**
+```javascript
+chrome.runtime.sendMessage({
+  type: 'approvalResponse',
+  requestId: 'req_...',
+  approved: true
+})
+```
+
+**Response:**
+```javascript
+{
+  success: boolean,
+  message: string
+}
+```
+
+#### 9. `checkAppApproval`
+
+Checks whether an origin is currently approved.
+
+**Request:**
+```javascript
+chrome.runtime.sendMessage({
+  type: 'checkAppApproval',
+  origin: location.origin
+})
+```
+
+**Response:**
+```javascript
+{
+  success: true,
+  data: { approved: boolean }
+}
+```
+
 ## Model Configuration Format
 
 The `ModelConfig` interface defines how models are configured:

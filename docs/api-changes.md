@@ -1,6 +1,6 @@
-# API Changes - Model Configuration Refactoring
+# API Changes
 
-This document outlines the API changes introduced in the model configuration refactoring that removed heavy data fields from `ModelConfig` and implemented on-demand loading.
+This document outlines notable API changes. It includes the earlier model configuration refactor and the new approval system APIs added to the service worker and UI.
 
 ## Overview
 
@@ -238,6 +238,29 @@ if (modelExists) {
   // Model downloaded successfully
 }
 ```
+
+### Approval System APIs
+
+New message types exposed by the service worker to manage third-party app approvals:
+
+```typescript
+// Get approved apps
+chrome.runtime.sendMessage({ type: 'getApprovedApps' })
+
+// Refresh approved apps from storage and return
+chrome.runtime.sendMessage({ type: 'refreshApprovedApps' })
+
+// Create a pending approval request (routed from content script)
+chrome.runtime.sendMessage({ type: 'approvalRequest', appInfo })
+
+// Send user's decision from the popup
+chrome.runtime.sendMessage({ type: 'approvalResponse', requestId, approved })
+
+// Check if an origin is approved
+chrome.runtime.sendMessage({ type: 'checkAppApproval', origin })
+```
+
+The popup Apps view fetches approved apps from the service worker and offers a "Refresh" button that calls `refreshApprovedApps`.
 
 ## Migration Guide
 

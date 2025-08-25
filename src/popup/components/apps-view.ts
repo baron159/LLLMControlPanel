@@ -6,6 +6,15 @@ export interface App {
   permissions: string
 }
 
+interface ApprovedAppFromSW {
+  id: string
+  name: string
+  origin: string
+  description?: string
+  approvedAt: number
+  permissions: string[]
+}
+
 export class AppsView extends HTMLElement {
   private apps: App[] = []
   private filter: 'my-apps' | 'trending' = 'my-apps'
@@ -22,9 +31,14 @@ export class AppsView extends HTMLElement {
   }
 
   private async loadApps() {
-    // Load apps from storage or use defaults
-    const storedApps = await this.getStoredApps()
-    this.apps = storedApps.length > 0 ? storedApps : this.getDefaultApps()
+    try {
+      const approved = await this.fetchApprovedAppsFromServiceWorker()
+      this.apps = approved
+      await this.setStoredApps(this.apps)
+    } catch {
+      const storedApps = await this.getStoredApps()
+      this.apps = storedApps.length > 0 ? storedApps : []
+    }
     this.render()
   }
 
@@ -37,50 +51,66 @@ export class AppsView extends HTMLElement {
     }
   }
 
-  private getDefaultApps(): App[] {
-    return [
-      {
-        id: "https://www.omnimodel.chat/",
-        domain: "https://www.omnimodel.chat",
-        path: "/",
-        title: "Chatbot UI",
-        permissions: "ask"
-      },
-      {
-        id: "https://chat-vrm-window.vercel.app/",
-        domain: "https://chat-vrm-window.vercel.app",
-        path: "/",
-        title: "ChatVRM",
-        permissions: "ask"
-      },
-      {
-        id: "https://play-chess-gpt.vercel.app/",
-        domain: "https://play-chess-gpt.vercel.app",
-        path: "/",
-        title: "Chess GPT",
-        permissions: "ask"
-      },
-      {
-        id: "https://generative-agents-notebook-js.vercel.app/",
-        domain: "https://generative-agents-notebook-js.vercel.app",
-        path: "/",
-        title: "Generative Agents Notebook Demo",
-        permissions: "ask"
-      },
-      {
-        id: "https://robot-companion.vercel.app/",
-        domain: "https://robot-companion.vercel.app",
-        path: "/",
-        title: "Robot Companion with window.ai",
-        permissions: "ask"
-      }
-    ]
+  private async setStoredApps(apps: App[]): Promise<void> {
+    try {
+      await chrome.storage.local.set({ apps })
+    } catch {
+      // no-op
+    }
   }
+
+  private async fetchApprovedAppsFromServiceWorker(): Promise<App[]> {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ type: 'getApprovedApps' }, (response) => {
+        if (!response || response.success !== true) {
+          reject(new Error(response?.message || 'Failed to get approved apps'))
+          return
+        }
+        const list = (response.data as ApprovedAppFromSW[]).map((a) => {
+          const url = new URL(a.origin)
+          const app: App = {
+            id: a.id,
+            domain: url.host,
+            path: url.pathname || '/',
+            title: a.name,
+            permissions: (a.permissions || []).join(', ')
+          }
+          return app
+        })
+        resolve(list)
+      })
+    })
+  }
+
+  private async refreshApprovedApps(): Promise<void> {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'refreshApprovedApps' }, (response) => {
+        if (response && response.success === true) {
+          const list = (response.data as ApprovedAppFromSW[]).map((a) => {
+            const url = new URL(a.origin)
+            const app: App = {
+              id: a.id,
+              domain: url.host,
+              path: url.pathname || '/',
+              title: a.name,
+              permissions: (a.permissions || []).join(', ')
+            }
+            return app
+          })
+          this.apps = list
+          this.setStoredApps(this.apps)
+          this.render()
+        }
+        resolve()
+      })
+    })
+  }
+
 
   private render() {
     if (!this.shadowRoot) return
 
-    const filteredApps = this.filter === 'my-apps' ? this.apps : this.getDefaultApps()
+    const filteredApps = this.filter === 'my-apps' ? this.apps : []
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -223,6 +253,8 @@ export class AppsView extends HTMLElement {
           <button class="filter-tab ${this.filter === 'trending' ? 'active' : ''}" data-filter="trending">
             Trending
           </button>
+          <span style="flex:1"></span>
+          <button class="filter-tab" id="refresh-apps">Refresh</button>
         </div>
         
         <div class="app-list">
@@ -262,29 +294,56 @@ export class AppsView extends HTMLElement {
       })
     })
 
+    // Refresh
+    const refreshBtn = this.shadowRoot.querySelector('#refresh-apps') as HTMLButtonElement | null
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async () => {
+        await this.refreshApprovedApps()
+      })
+    }
+
     // App items
     this.shadowRoot.querySelectorAll('.app-item').forEach(item => {
       item.addEventListener('click', (e) => {
         const target = e.currentTarget as HTMLElement
         const appId = target.dataset.appId
-        const app = this.apps.find(a => a.id === appId) || this.getDefaultApps().find(a => a.id === appId)
-        
-        if (app) {
-          this.showAppDetails(app)
-        }
+        const app = this.apps.find(a => a.id === appId)
+        if (app) this.showAppDetails(app)
       })
     })
   }
 
   private showAppDetails(app: App) {
-    // Create and show app details modal
-    const modal = document.createElement('app-item')
-    modal.setAttribute('app', JSON.stringify(app))
+    // Simple inline modal for details
+    const modal = document.createElement('div')
+    modal.style.position = 'fixed'
+    modal.style.inset = '0'
+    modal.style.background = 'rgba(0,0,0,0.4)'
+    modal.style.display = 'flex'
+    modal.style.alignItems = 'center'
+    modal.style.justifyContent = 'center'
+
+    const card = document.createElement('div')
+    card.style.background = 'white'
+    card.style.borderRadius = '8px'
+    card.style.padding = '16px'
+    card.style.width = '360px'
+    card.style.maxWidth = '90vw'
+    card.innerHTML = `
+      <h3 style="margin:0 0 8px 0;">${app.title}</h3>
+      <div style="color:#666; font-size:12px;">${app.domain}${app.path && app.path !== '/' ? app.path : ''}</div>
+      <div style="margin-top:12px; font-size:12px; color:#007AFF;">${app.permissions}</div>
+      <div style="margin-top:16px; display:flex; gap:8px; justify-content:flex-end;">
+        <button id="close-modal" style="padding:6px 12px; border:none; background:#6c757d; color:white; border-radius:4px; cursor:pointer;">Close</button>
+      </div>
+    `
+    modal.appendChild(card)
     document.body.appendChild(modal)
-    
-    // Clean up when modal is closed
-    modal.addEventListener('close', () => {
-      document.body.removeChild(modal)
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal || (e.target as HTMLElement).id === 'close-modal') {
+        document.body.removeChild(modal)
+      }
     })
   }
 }

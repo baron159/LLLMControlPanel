@@ -353,7 +353,7 @@ class LLMServiceWorker {
         
         // Create a new tab with the popup URL and approval parameter
         await chrome.tabs.create({
-          url: chrome.runtime.getURL('popup/index.html?approval=true'),
+          url: chrome.runtime.getURL('src/popup/index.html?approval=true'),
           active: true
         });
       }
@@ -407,11 +407,23 @@ class LLMServiceWorker {
   }
 
   isAppApproved(origin: string): boolean {
+    console.log('Checking approval for origin:', origin);
+    console.log('current state:', this.state.approvedApps);
     return Array.from(this.state.approvedApps.values()).some(app => app.origin === origin);
   }
 
   getApprovedApps(): ApprovedApp[] {
     return Array.from(this.state.approvedApps.values());
+  }
+
+  async refreshApprovedApps(): Promise<ApprovedApp[]> {
+    try {
+      await this.loadModelConfigsFromStorage();
+      return this.getApprovedApps();
+    } catch (error) {
+      console.error('Failed to refresh approved apps:', error);
+      return this.getApprovedApps();
+    }
   }
 
   async revokeAppApproval(appId: string): Promise<{ success: boolean; message: string }> {
@@ -487,6 +499,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           return {
             success: true,
             data: llmServiceWorker.getApprovedApps()
+          };
+        
+        case 'refreshApprovedApps':
+          return {
+            success: true,
+            data: await llmServiceWorker.refreshApprovedApps()
           };
           
         case 'revokeAppApproval':

@@ -23,7 +23,7 @@ sequenceDiagram
     App->>CS: llmCtl.requestApproval()
     CS->>SW: approval-request message
     SW->>SW: Create pending request
-    SW->>Popup: showApprovalRequest message
+    SW->>Tabs: Open popup page with approval=true
     Popup->>User: Display approval dialog
     User->>Popup: Approve/Reject
     Popup->>SW: approvalResponse message
@@ -101,8 +101,9 @@ Users can view and manage approved applications through the extension popup:
 
 1. Open the LLM Control Panel extension popup
 2. Navigate to the Apps section
-3. View list of approved applications
-4. Revoke approval for any app as needed
+3. View list of approved applications (fetched from the service worker)
+4. Use the "Refresh" button to re-sync from storage if needed
+5. Revoke approval for any app as needed (future UI enhancement)
 
 ## Security Considerations
 
