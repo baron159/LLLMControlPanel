@@ -193,8 +193,8 @@ const devices = await webnnUtils.getAvailableDevices();
 
 The popup uses a component-based architecture:
 
-- `settings-view.ts`: Model management interface
-- `apps-view.ts`: Application integration
+- `settings-view.ts`: Settings interface (theme, providers list, quantization recommendation)
+- `apps-view.ts`: Approved apps list and LLMs management (add/download/select models)
 - `llm-control-panel.ts`: Main popup controller
 
 ### Adding New UI Features
@@ -203,6 +203,22 @@ The popup uses a component-based architecture:
 2. **Update Main Controller**: Import and initialize in `llm-control-panel.ts`
 3. **Add Styles**: Update `popup/styles.css`
 4. **Service Worker Integration**: Add message handlers for new features
+
+### LLMs Tab (Apps View)
+
+- Use `chrome.runtime.sendMessage({ type: 'status' })` to display model IDs, downloaded state, and selected model.
+- Use `addModel`, `downloadModel`, and `setSelectedModel` message types to manage models.
+- Store heavy model data in IndexedDB (handled by existing utilities and service worker).
+
+### Settings Providers and Quantization
+
+- Providers are listed from the `status` response (`availableProviders`).
+- The quantization recommendation is derived in the UI (no new API), combining providers and `navigator.deviceMemory`:
+  - WebGPU + >=16GB: `fp16`
+  - WebGPU + 8–16GB: `q4f16`
+  - WebGPU + <8GB: `q4`
+  - WebNN (>=8GB): `q4f16`, else `q4`
+  - WASM only (>=8GB): `q4f16`, else `q4`
 
 ## Testing
 

@@ -17,8 +17,13 @@ interface ApprovedAppFromSW {
 
 export class AppsView extends HTMLElement {
   private apps: App[] = []
-  private filter: 'my-apps' | 'trending' = 'my-apps'
+  private filter: 'my-apps' | 'llms' = 'my-apps'
   private revoking: Set<string> = new Set()
+  private modelStatus: {
+    modelIds: string[]
+    downloadedModels: string[]
+    currentSelectedModel: string | null
+  } = { modelIds: [], downloadedModels: [], currentSelectedModel: null }
 
   constructor() {
     super()
@@ -80,6 +85,143 @@ export class AppsView extends HTMLElement {
         })
         resolve(list)
       })
+    })
+  }
+
+  private async fetchModelStatus(): Promise<void> {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'status' }, (response) => {
+        if (response && response.success && response.data) {
+          const { modelIds, downloadedModels, currentSelectedModel } = response.data as {
+            modelIds: string[]
+            downloadedModels: string[]
+            currentSelectedModel: string | null
+          }
+          this.modelStatus = { modelIds, downloadedModels, currentSelectedModel }
+        }
+        resolve()
+      })
+    })
+  }
+
+  private async addModelConfig(config: {
+    modelId: string
+    urlBase: string
+    onnxDir: string
+    configFileName: string
+    repoBase: string
+    modelFileName: string
+    modelExDataFileName?: string
+  }): Promise<boolean> {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'addModel', modelConfig: config }, async (response) => {
+        if (response && response.success) {
+          await this.fetchModelStatus()
+          this.render()
+          resolve(true)
+        } else {
+          resolve(false)
+        }
+      })
+    })
+  }
+
+  private async downloadModel(modelId: string): Promise<void> {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'downloadModel', modelId }, async (_response) => {
+        await this.fetchModelStatus()
+        this.render()
+        resolve()
+      })
+    })
+  }
+
+  private async selectModel(modelId: string): Promise<void> {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'setSelectedModel', modelId }, async (_response) => {
+        await this.fetchModelStatus()
+        this.render()
+        resolve()
+      })
+    })
+  }
+
+  private showAddModelForm() {
+    const modal = document.createElement('div')
+    modal.style.position = 'fixed'
+    modal.style.inset = '0'
+    modal.style.background = 'rgba(0,0,0,0.4)'
+    modal.style.display = 'flex'
+    modal.style.alignItems = 'center'
+    modal.style.justifyContent = 'center'
+
+    const card = document.createElement('div')
+    card.style.background = 'white'
+    card.style.borderRadius = '8px'
+    card.style.padding = '16px'
+    card.style.width = '420px'
+    card.style.maxWidth = '90vw'
+    card.innerHTML = `
+      <h3 style="margin:0 0 12px 0;">Add Model Configuration</h3>
+      <form id="add-model-form" style="display:flex; flex-direction:column; gap:8px;">
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>Model ID</span>
+          <input name="modelId" required placeholder="Xenova/TinyLlama-1.1B-Chat-v1.0" style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>URL Base</span>
+          <input name="urlBase" value="https://huggingface.co" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>ONNX Directory</span>
+          <input name="onnxDir" value="onnx" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>Config File Name</span>
+          <input name="configFileName" value="config.json" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>Repo Base</span>
+          <input name="repoBase" value="resolve/main" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>Model File Name</span>
+          <input name="modelFileName" value="model.onnx" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>External Data File (optional)</span>
+          <input name="modelExDataFileName" placeholder="model_external_data.bin" style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <div style="margin-top:8px; display:flex; gap:8px; justify-content:flex-end;">
+          <button type="button" id="cancel-add-model" class="filter-tab" style="background:#6c757d; color:white;">Cancel</button>
+          <button type="submit" class="filter-tab" style="background:#007AFF; color:white;">Save</button>
+        </div>
+      </form>
+    `
+    modal.appendChild(card)
+    document.body.appendChild(modal)
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal || (e.target as HTMLElement).id === 'cancel-add-model') {
+        document.body.removeChild(modal)
+      }
+    })
+
+    const form = card.querySelector('#add-model-form') as HTMLFormElement
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const data = new FormData(form)
+      const modelId = String(data.get('modelId') || '').trim()
+      const urlBase = String(data.get('urlBase') || '').trim()
+      const onnxDir = String(data.get('onnxDir') || '').trim()
+      const configFileName = String(data.get('configFileName') || '').trim()
+      const repoBase = String(data.get('repoBase') || '').trim()
+      const modelFileName = String(data.get('modelFileName') || '').trim()
+      const modelExDataFileNameRaw = String(data.get('modelExDataFileName') || '').trim()
+      const payload: any = { modelId, urlBase, onnxDir, configFileName, repoBase, modelFileName }
+      if (modelExDataFileNameRaw) payload.modelExDataFileName = modelExDataFileNameRaw
+      const ok = await this.addModelConfig(payload)
+      if (ok) document.body.removeChild(modal)
     })
   }
 
@@ -246,6 +388,15 @@ export class AppsView extends HTMLElement {
           margin-top: 4px;
           display: inline-block;
         }
+        .model-list { display:flex; flex-direction:column; gap:8px; }
+        .model-item { display:flex; align-items:center; padding:12px; background:white; border-radius:8px; border:1px solid #e0e0e0; }
+        .dark .model-item { background:#2d2d2d; border-color:#404040; }
+        .model-id { font-weight:500; color:#333; }
+        .dark .model-id { color:#e0e0e0; }
+        .badge { font-size:10px; padding:2px 6px; border-radius:4px; display:inline-block; margin-left:8px; }
+        .badge.downloaded { color:#2e7d32; background:rgba(46,125,50,0.12); }
+        .badge.selected { color:#aa00ff; background:rgba(170,0,255,0.12); }
+        .model-actions { margin-left:auto; display:flex; gap:8px; }
         
         .empty-state {
           text-align: center;
@@ -268,38 +419,67 @@ export class AppsView extends HTMLElement {
           <button class="filter-tab ${this.filter === 'my-apps' ? 'active' : ''}" data-filter="my-apps">
             My Apps
           </button>
-          <button class="filter-tab ${this.filter === 'trending' ? 'active' : ''}" data-filter="trending">
-            Trending
+          <button class="filter-tab ${this.filter === 'llms' ? 'active' : ''}" data-filter="llms">
+            LLMs
           </button>
           <span style="flex:1"></span>
           <button class="filter-tab" id="refresh-apps">Refresh</button>
         </div>
         
-        <div class="app-list">
-          ${filteredApps.length > 0 ? 
-            filteredApps.map(app => `
-              <div class="app-item" data-app-id="${app.id}">
-                <div class="app-icon">
-                  ${app.title.charAt(0).toUpperCase()}
+        ${this.filter === 'my-apps' ? `
+          <div class="app-list">
+            ${filteredApps.length > 0 ? 
+              filteredApps.map(app => `
+                <div class="app-item" data-app-id="${app.id}">
+                  <div class="app-icon">
+                    ${app.title.charAt(0).toUpperCase()}
+                  </div>
+                  <div class="app-info">
+                    <div class="app-title">${app.title}</div>
+                    <div class="app-domain">${app.domain}</div>
+                    <div class="app-permissions">${app.permissions}</div>
+                  </div>
+                  <div>
+                    <button class="filter-tab revoke-btn" data-app-id="${app.id}" ${this.revoking.has(app.id) ? 'disabled' : ''}>
+                      ${this.revoking.has(app.id) ? 'Revoking...' : 'Revoke'}
+                    </button>
+                  </div>
                 </div>
-                <div class="app-info">
-                  <div class="app-title">${app.title}</div>
-                  <div class="app-domain">${app.domain}</div>
-                  <div class="app-permissions">${app.permissions}</div>
+              `).join('') :
+              `<div class="empty-state">
+                <h3>No apps found</h3>
+                <p>Add your first app to get started</p>
+              </div>`
+            }
+          </div>
+        ` : `
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+            <button class="filter-tab" id="add-model-btn" style="background:#007AFF; color:white;">Add Model</button>
+            <button class="filter-tab" id="refresh-models">Refresh</button>
+          </div>
+          <div class="model-list">
+            ${this.modelStatus.modelIds.length > 0 ? this.modelStatus.modelIds.map(id => {
+              const downloaded = this.modelStatus.downloadedModels.includes(id)
+              const selected = this.modelStatus.currentSelectedModel === id
+              return `
+                <div class="model-item" data-model-id="${id}">
+                  <div class="model-id">${id}</div>
+                  ${downloaded ? '<span class="badge downloaded">Downloaded</span>' : ''}
+                  ${selected ? '<span class="badge selected">Selected</span>' : ''}
+                  <div class="model-actions">
+                    ${!downloaded ? `<button class=\"filter-tab download-model-btn\" data-model-id=\"${id}\">Download</button>` : ''}
+                    ${!selected ? `<button class=\"filter-tab select-model-btn\" data-model-id=\"${id}\">Select</button>` : ''}
+                  </div>
                 </div>
-                <div>
-                  <button class="filter-tab revoke-btn" data-app-id="${app.id}" ${this.revoking.has(app.id) ? 'disabled' : ''}>
-                    ${this.revoking.has(app.id) ? 'Revoking...' : 'Revoke'}
-                  </button>
-                </div>
+              `
+            }).join('') : `
+              <div class="empty-state">
+                <h3>No models configured</h3>
+                <p>Add a model configuration to get started</p>
               </div>
-            `).join('') :
-            `<div class="empty-state">
-              <h3>No apps found</h3>
-              <p>Add your first app to get started</p>
-            </div>`
-          }
-        </div>
+            `}
+          </div>
+        `}
       </div>
     `
     // Re-bind events after render, since innerHTML replacement removes listeners
@@ -313,9 +493,15 @@ export class AppsView extends HTMLElement {
     this.shadowRoot.querySelectorAll('.filter-tab').forEach(tab => {
       tab.addEventListener('click', (e) => {
         const target = e.target as HTMLElement
-        const filter = target.dataset.filter as 'my-apps' | 'trending'
-        this.filter = filter
-        this.render()
+        const filter = target.dataset.filter as 'my-apps' | 'llms'
+        if (filter) {
+          this.filter = filter
+          if (filter === 'llms') {
+            this.fetchModelStatus().then(() => this.render())
+            return
+          }
+          this.render()
+        }
       })
     })
 
@@ -325,6 +511,20 @@ export class AppsView extends HTMLElement {
       refreshBtn.addEventListener('click', async () => {
         await this.refreshApprovedApps()
       })
+    }
+
+    // LLMs controls
+    const refreshModelsBtn = this.shadowRoot.querySelector('#refresh-models') as HTMLButtonElement | null
+    if (refreshModelsBtn) {
+      refreshModelsBtn.addEventListener('click', async () => {
+        await this.fetchModelStatus()
+        this.render()
+      })
+    }
+
+    const addModelBtn = this.shadowRoot.querySelector('#add-model-btn') as HTMLButtonElement | null
+    if (addModelBtn) {
+      addModelBtn.addEventListener('click', () => this.showAddModelForm())
     }
 
     // App items
@@ -346,6 +546,25 @@ export class AppsView extends HTMLElement {
         const appId = target.dataset.appId as string
         console.log('[apps-view] revoke appId:', appId)
         await this.revokeApp(appId)
+      })
+    })
+
+    // Model buttons
+    this.shadowRoot.querySelectorAll('.download-model-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const target = e.currentTarget as HTMLButtonElement
+        const modelId = target.dataset.modelId as string
+        await this.downloadModel(modelId)
+      })
+    })
+
+    this.shadowRoot.querySelectorAll('.select-model-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const target = e.currentTarget as HTMLButtonElement
+        const modelId = target.dataset.modelId as string
+        await this.selectModel(modelId)
       })
     })
   }

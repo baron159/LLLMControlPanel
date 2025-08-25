@@ -262,6 +262,26 @@ chrome.runtime.sendMessage({ type: 'checkAppApproval', origin })
 
 The popup Apps view fetches approved apps from the service worker and offers a "Refresh" button that calls `refreshApprovedApps`.
 
+## UI Updates (Popup)
+
+### LLMs Management in `apps-view.ts`
+
+- The former "Trending" tab has been replaced by an **LLMs** tab.
+- The LLMs tab uses existing service worker messages to manage models:
+  - **status**: Retrieves `modelIds`, `downloadedModels`, and `currentSelectedModel` for display
+  - **addModel**: Saves a new `ModelConfig` (fields: `modelId`, `urlBase`, `onnxDir`, `configFileName`, `repoBase`, `modelFileName`, optional `modelExDataFileName`)
+  - **downloadModel**: Downloads model data (stored in IndexedDB)
+  - **setSelectedModel**: Marks a model as currently selected
+- The UI shows badges for "Downloaded" and "Selected" per model, and provides actions to Download/Select.
+- A modal form allows adding a model configuration manually; values default to the same as `OnnxModelConfigFill`.
+
+### Settings Changes in `settings-view.ts`
+
+- Removed the old "Model Selection" and "Model Status" sections.
+- Added an **Execution Providers** section listing detected providers (`webnn`, `webgpu`, `wasm`), with a Refresh button. Providers come from the `status` message.
+- Added a **Recommended Quantization** section that suggests a level (e.g., `q4`, `q4f16`, `fp16`) based on available providers and `navigator.deviceMemory` when available.
+- No new service worker APIs were added for these changes; the UI relies on the existing `status` response structure.
+
 ## Migration Guide
 
 ### For Existing Code
