@@ -1,5 +1,5 @@
 export class NavBar extends HTMLElement {
-  private currentView: 'apps' | 'activity' = 'apps'
+  private currentView: 'apps' | 'activity' | 'chat' = 'apps'
 
   constructor() {
     super()
@@ -123,12 +123,41 @@ export class NavBar extends HTMLElement {
           <button class="nav-tab ${this.currentView === 'activity' ? 'active' : ''}" data-view="activity">
             Activity
           </button>
+          <button class="nav-tab ${this.currentView === 'chat' ? 'active' : ''}" data-view="chat" title="Chat" aria-label="Chat">
+            <!-- chat icon -->
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;">
+              <path d="M20 2H4C2.895 2 2 2.895 2 4V18C2 19.105 2.895 20 4 20H18L22 24V4C22 2.895 21.105 2 20 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M7 8H17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path d="M7 12H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
         </div>
         
         <div class="nav-actions">
-          <button class="nav-button" data-action="help">Help</button>
-          <button class="nav-button" data-action="about">About</button>
-          <button class="nav-button" data-action="settings">Settings</button>
+          <button class="nav-button" data-action="help" title="Help" aria-label="Help">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/>
+              <path d="M9.1 9a3 3 0 1 1 5.8 1c0 2-3 2-3 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="12" cy="17" r="1" fill="currentColor"/>
+            </svg>
+          </button>
+          <button class="nav-button" data-action="settings" title="Settings" aria-label="Settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;">
+              <line x1="4" y1="6" x2="20" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="10" cy="6" r="2" stroke="currentColor" stroke-width="2"/>
+              <line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="14" cy="12" r="2" stroke="currentColor" stroke-width="2"/>
+              <line x1="4" y1="18" x2="20" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="8" cy="18" r="2" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </button>
+          <button class="nav-button" data-action="popout" title="Open in new tab" aria-label="Open in new tab">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;">
+              <path d="M14 3h7v7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M10 14L21 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M21 14v6a1 1 0 0 1-1 1h-14a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
         </div>
       </div>
     `
@@ -142,8 +171,8 @@ export class NavBar extends HTMLElement {
     // Tab navigation
     this.shadowRoot.querySelectorAll('.nav-tab').forEach(tab => {
       tab.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement
-        const view = target.dataset.view as 'apps' | 'activity'
+        const target = e.currentTarget as HTMLElement
+        const view = target.dataset.view as 'apps' | 'activity' | 'chat'
         console.log('NavBar: Tab clicked:', view)
         this.currentView = view
         this.render()
@@ -161,7 +190,7 @@ export class NavBar extends HTMLElement {
     // Action buttons
     this.shadowRoot.querySelectorAll('.nav-button').forEach(button => {
       button.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement
+        const target = e.currentTarget as HTMLElement
         const action = target.dataset.action
         
         console.log('NavBar: Action button clicked:', action)

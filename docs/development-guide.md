@@ -7,7 +7,7 @@ This guide provides information for developers working on the LLM Control Panel 
 ```
 src/
 ├── background/
-│   └── tiny-background.ts      # Service worker implementation
+│   └── sw.ts      # Service worker implementation
 ├── content/
 │   └── index.ts               # Content script for web page integration
 ├── core/
@@ -193,8 +193,8 @@ const devices = await webnnUtils.getAvailableDevices();
 
 The popup uses a component-based architecture:
 
-- `settings-view.ts`: Settings interface (theme, providers list, quantization recommendation)
-- `apps-view.ts`: Approved apps list and LLMs management (add/download/select models)
+- `settings-view.ts`: Settings interface (theme, providers list, quantization recommendation). Help and Settings in the nav are icon buttons.
+- `apps-view.ts`: Approved apps list and LLMs management (add/download/select models). LLM actions are icon buttons; refresh buttons show an icon and context label. Edit form saves via `updateModel`.
 - `llm-control-panel.ts`: Main popup controller
 
 ### Adding New UI Features
@@ -207,7 +207,7 @@ The popup uses a component-based architecture:
 ### LLMs Tab (Apps View)
 
 - Use `chrome.runtime.sendMessage({ type: 'status' })` to display model IDs, downloaded state, and selected model.
-- Use `addModel`, `downloadModel`, and `setSelectedModel` message types to manage models.
+- Use `addModel`, `updateModel`, `downloadModel`, and `setSelectedModel` message types to manage models. `addModel` auto-approves user-added models.
 - Store heavy model data in IndexedDB (handled by existing utilities and service worker).
 
 ### Settings Providers and Quantization

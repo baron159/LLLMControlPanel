@@ -239,6 +239,25 @@ if (modelExists) {
 }
 ```
 
+#### New: `updateModel` and Auto-Approval
+
+- Added `updateModel` message to update existing model configurations. The implementation preserves the downloaded flag and keeps an `approvedModelConfigs` map synchronized so user-managed models are always considered approved.
+- `addModel` now also inserts the model into `approvedModelConfigs` immediately.
+
+```typescript
+// Add model
+const added = this.state.modelList.addModel(modelConfig.modelId, modelConfig)
+this.state.approvedModelConfigs.set(added.modelId, added)
+
+// Update model
+const existing = this.state.modelList.getModelConfig(modelConfig.modelId)
+const wasDownloaded = existing ? (existing as any).isDownloaded === true : false
+const updated = this.state.modelList.addModel(modelConfig.modelId, modelConfig)
+if (wasDownloaded) (updated as any).isDownloaded = true
+this.state.approvedModelConfigs.set(updated.modelId, updated)
+await this.saveModelConfigsToStorage()
+```
+
 ### Approval System APIs
 
 New message types exposed by the service worker to manage third-party app approvals:
@@ -274,6 +293,14 @@ The popup Apps view fetches approved apps from the service worker and offers a "
   - **setSelectedModel**: Marks a model as currently selected
 - The UI shows badges for "Downloaded" and "Selected" per model, and provides actions to Download/Select.
 - A modal form allows adding a model configuration manually; values default to the same as `OnnxModelConfigFill`.
+- An edit form allows updating an existing model configuration. On Save, the popup calls the new `updateModel` message and refreshes the UI.
+- Action buttons in the LLMs list are now icons (Download, Select, Delete, Edit). Delete is a stub for now.
+- Refresh buttons include an icon and context label (e.g., Refresh Apps, Refresh Models).
+
+### Navigation and Persistence
+
+- The nav bar uses icon buttons for Help, Settings, and a Pop out action.
+- Pop out opens the popup UI in a regular tab using `chrome.tabs.create`, so the UI persists when losing focus.
 
 ### Settings Changes in `settings-view.ts`
 

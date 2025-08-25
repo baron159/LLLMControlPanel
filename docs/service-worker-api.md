@@ -76,6 +76,9 @@ chrome.runtime.sendMessage({
 }
 ```
 
+Notes:
+- Models added via this API are also stored in the service worker's `approvedModelConfigs` to mark them as user-approved immediately.
+
 #### 3. `downloadModel`
 
 Downloads a model that has been added to the configuration.
@@ -117,7 +120,35 @@ chrome.runtime.sendMessage({
 }
 ```
 
-#### 5. `getApprovedApps`
+#### 5. `updateModel`
+
+Updates an existing model configuration. Preserves the model's downloaded state when possible and keeps the approved list in sync.
+
+**Request:**
+```javascript
+chrome.runtime.sendMessage({
+  type: 'updateModel',
+  modelConfig: {
+    modelId: 'microsoft/DialoGPT-medium',
+    urlBase: 'https://huggingface.co',
+    onnxDir: 'onnx',
+    configFileName: 'config.json',
+    repoBase: 'resolve/main',
+    modelFileName: 'model.onnx',
+    modelExDataFileName: 'model_external_data.bin' // optional
+  }
+})
+```
+
+**Response:**
+```javascript
+{
+  success: boolean,
+  message: string
+}
+```
+
+#### 6. `getApprovedApps`
 
 Returns the list of approved third-party apps.
 
@@ -143,7 +174,7 @@ chrome.runtime.sendMessage({ type: 'getApprovedApps' })
 }
 ```
 
-#### 6. `refreshApprovedApps`
+#### 7. `refreshApprovedApps`
 
 Reloads approved apps from storage and returns the current list. Useful for UI refresh controls.
 
@@ -160,7 +191,7 @@ chrome.runtime.sendMessage({ type: 'refreshApprovedApps' })
 }
 ```
 
-#### 7. `approvalRequest`
+#### 8. `approvalRequest`
 
 Creates a pending approval request for a third-party application. Typically initiated by `window.llmCtl.requestApproval()` routed through the content script.
 
@@ -186,7 +217,7 @@ chrome.runtime.sendMessage({
 }
 ```
 
-#### 8. `approvalResponse`
+#### 9. `approvalResponse`
 
 Sends the user's decision from the popup UI.
 
@@ -207,7 +238,7 @@ chrome.runtime.sendMessage({
 }
 ```
 
-#### 9. `checkAppApproval`
+#### 10. `checkAppApproval`
 
 Checks whether an origin is currently approved.
 

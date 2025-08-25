@@ -212,7 +212,9 @@ class LLMServiceWorker {
       }
       
       // Add model to list
-      this.state.modelList.addModel(modelConfig.modelId, modelConfig);
+      const added = this.state.modelList.addModel(modelConfig.modelId, modelConfig);
+      // Also add to approved model configs
+      this.state.approvedModelConfigs.set(added.modelId, added);
       
       // Save to storage
       await this.saveModelConfigsToStorage();
@@ -223,6 +225,29 @@ class LLMServiceWorker {
     } catch (error) {
       console.error('Failed to add model:', error);
       return { success: false, message: `Failed to add model: ${error}` };
+    }
+  }
+
+  async handleUpdateModel(modelConfig: ModelConfig): Promise<{ success: boolean; message: string }> {
+    try {
+      if (!modelConfig.modelId || typeof modelConfig.modelId !== 'string') {
+        return { success: false, message: 'Invalid model ID' };
+      }
+      const existing = this.state.modelList.getModelConfig(modelConfig.modelId);
+      const wasDownloaded = existing ? (existing as any).isDownloaded === true : false;
+
+      // Overwrite existing config (using addModel to normalize defaults)
+      const updated = this.state.modelList.addModel(modelConfig.modelId, modelConfig);
+      if (wasDownloaded) (updated as any).isDownloaded = true;
+
+      // Keep approved list in sync
+      this.state.approvedModelConfigs.set(updated.modelId, updated);
+
+      await this.saveModelConfigsToStorage();
+      return { success: true, message: 'Model updated successfully' };
+    } catch (error) {
+      console.error('Failed to update model:', error);
+      return { success: false, message: `Failed to update model: ${error}` };
     }
   }
 
@@ -464,6 +489,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             return { success: false, message: 'Model config is required' };
           }
           return await llmServiceWorker.handleAddModel(message.modelConfig);
+        
+        case 'updateModel':
+          if (!message.modelConfig) {
+            return { success: false, message: 'Model config is required' };
+          }
+          return await llmServiceWorker.handleUpdateModel(message.modelConfig);
           
         case 'downloadModel':
           if (!message.modelId) {

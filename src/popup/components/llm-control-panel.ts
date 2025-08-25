@@ -3,12 +3,12 @@ import './apps-view'
 import './activity-view'
 import './settings-view'
 import './help-view'
-import './about-view'
+import './chat-view'
 import './sliding-pane'
 import { ThemeManager } from '../../core/utils/theme-manager'
 
 export class LLMControlPanel extends HTMLElement {
-  private currentView: 'apps' | 'activity' = 'apps'
+  private currentView: 'apps' | 'activity' | 'chat' = 'apps'
   private themeManager = ThemeManager.getInstance()
   private currentApprovalRequest: any = null
 
@@ -112,6 +112,10 @@ export class LLMControlPanel extends HTMLElement {
           <div class="view ${this.currentView === 'activity' ? 'active' : ''}" id="activity-view">
             <activity-view></activity-view>
           </div>
+
+          <div class="view ${this.currentView === 'chat' ? 'active' : ''}" id="chat-view">
+            <chat-view></chat-view>
+          </div>
         </div>
       </div>
       
@@ -123,11 +127,6 @@ export class LLMControlPanel extends HTMLElement {
       <sliding-pane id="help-pane">
         <span slot="title">Help</span>
         <help-view></help-view>
-      </sliding-pane>
-      
-      <sliding-pane id="about-pane">
-        <span slot="title">About</span>
-        <about-view></about-view>
       </sliding-pane>
       
       <sliding-pane id="approval-pane">
@@ -287,18 +286,17 @@ export class LLMControlPanel extends HTMLElement {
       }
     })
 
-    // About pane
-    document.addEventListener('show-about', () => {
-      console.log('LLMControlPanel: show-about event received')
-      const aboutPane = this.shadowRoot?.querySelector('#about-pane') as any
-      console.log('LLMControlPanel: aboutPane found:', aboutPane)
-      if (aboutPane) {
-        console.log('LLMControlPanel: calling aboutPane.show()')
-        aboutPane.show()
-      } else {
-        console.error('LLMControlPanel: aboutPane not found!')
+    // Pop out to a new tab to keep UI persistent
+    document.addEventListener('show-popout', async () => {
+      try {
+        const url = chrome.runtime.getURL('src/popup/index.html')
+        await chrome.tabs.create({ url, active: true })
+      } catch (e) {
+        console.error('LLMControlPanel: failed to open popout tab', e)
       }
     })
+
+    // About pane removed
 
     // Handle pane closed events
     this.shadowRoot.addEventListener('pane-closed', (e: any) => {

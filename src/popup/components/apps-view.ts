@@ -225,6 +225,100 @@ export class AppsView extends HTMLElement {
     })
   }
 
+  private async showEditModelForm(initial: {
+    modelId: string
+    urlBase?: string
+    onnxDir?: string
+    configFileName?: string
+    repoBase?: string
+    modelFileName?: string
+    modelExDataFileName?: string
+  }) {
+    const modal = document.createElement('div')
+    modal.style.position = 'fixed'
+    modal.style.inset = '0'
+    modal.style.background = 'rgba(0,0,0,0.4)'
+    modal.style.display = 'flex'
+    modal.style.alignItems = 'center'
+    modal.style.justifyContent = 'center'
+
+    const card = document.createElement('div')
+    card.style.background = 'white'
+    card.style.borderRadius = '8px'
+    card.style.padding = '16px'
+    card.style.width = '420px'
+    card.style.maxWidth = '90vw'
+    card.innerHTML = `
+      <h3 style="margin:0 0 12px 0;">Edit Model Configuration</h3>
+      <form id="edit-model-form" style="display:flex; flex-direction:column; gap:8px;">
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>Model ID</span>
+          <input name="modelId" value="${initial.modelId}" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" disabled />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>URL Base</span>
+          <input name="urlBase" value="${initial.urlBase || 'https://huggingface.co'}" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>ONNX Directory</span>
+          <input name="onnxDir" value="${initial.onnxDir || 'onnx'}" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>Config File Name</span>
+          <input name="configFileName" value="${initial.configFileName || 'config.json'}" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>Repo Base</span>
+          <input name="repoBase" value="${initial.repoBase || 'resolve/main'}" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>Model File Name</span>
+          <input name="modelFileName" value="${initial.modelFileName || 'model.onnx'}" required style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <label style="display:flex; flex-direction:column; font-size:12px;">
+          <span>External Data File (optional)</span>
+          <input name="modelExDataFileName" value="${initial.modelExDataFileName || ''}" placeholder="model_external_data.bin" style="padding:6px; border:1px solid #e0e0e0; border-radius:4px;" />
+        </label>
+        <div style="margin-top:8px; display:flex; gap:8px; justify-content:flex-end;">
+          <button type="button" id="cancel-edit-model" class="filter-tab" style="background:#6c757d; color:white;">Cancel</button>
+          <button type="submit" class="filter-tab" style="background:#007AFF; color:white;">Save</button>
+        </div>
+      </form>
+    `
+    modal.appendChild(card)
+    document.body.appendChild(modal)
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal || (e.target as HTMLElement).id === 'cancel-edit-model') {
+        document.body.removeChild(modal)
+      }
+    })
+
+    const form = card.querySelector('#edit-model-form') as HTMLFormElement
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const data = new FormData(form)
+      const payload = {
+        modelId: String(data.get('modelId') || '').trim(),
+        urlBase: String(data.get('urlBase') || '').trim(),
+        onnxDir: String(data.get('onnxDir') || '').trim(),
+        configFileName: String(data.get('configFileName') || '').trim(),
+        repoBase: String(data.get('repoBase') || '').trim(),
+        modelFileName: String(data.get('modelFileName') || '').trim(),
+        modelExDataFileName: String(data.get('modelExDataFileName') || '').trim() || undefined,
+      }
+      chrome.runtime.sendMessage({ type: 'updateModel', modelConfig: payload }, async (response) => {
+        if (response && response.success) {
+          await this.fetchModelStatus()
+          this.render()
+          document.body.removeChild(modal)
+        } else {
+          alert(response?.message || 'Failed to update model')
+        }
+      })
+    })
+  }
+
   private async refreshApprovedApps(): Promise<void> {
     return new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: 'refreshApprovedApps' }, (response) => {
@@ -396,7 +490,10 @@ export class AppsView extends HTMLElement {
         .badge { font-size:10px; padding:2px 6px; border-radius:4px; display:inline-block; margin-left:8px; }
         .badge.downloaded { color:#2e7d32; background:rgba(46,125,50,0.12); }
         .badge.selected { color:#aa00ff; background:rgba(170,0,255,0.12); }
-        .model-actions { margin-left:auto; display:flex; gap:8px; }
+        .model-actions { margin-left:auto; display:flex; gap:6px; }
+        .icon-button { width:28px; height:28px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:none; background:none; cursor:pointer; border-radius:6px; color:#666; }
+        .icon-button:hover { background:#f0f0f0; color:#333; }
+        .dark .icon-button:hover { background:#404040; color:#e0e0e0; }
         
         .empty-state {
           text-align: center;
@@ -423,7 +520,12 @@ export class AppsView extends HTMLElement {
             LLMs
           </button>
           <span style="flex:1"></span>
-          <button class="filter-tab" id="refresh-apps">Refresh</button>
+          <button class="filter-tab" id="refresh-apps" title="Refresh apps">
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>Apps</span>
+            </span>
+          </button>
         </div>
         
         ${this.filter === 'my-apps' ? `
@@ -455,7 +557,12 @@ export class AppsView extends HTMLElement {
         ` : `
           <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
             <button class="filter-tab" id="add-model-btn" style="background:#007AFF; color:white;">Add Model</button>
-            <button class="filter-tab" id="refresh-models">Refresh</button>
+            <button class="filter-tab" id="refresh-models" title="Refresh models">
+              <span style="display:inline-flex; align-items:center; gap:6px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 3v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span>Models</span>
+              </span>
+            </button>
           </div>
           <div class="model-list">
             ${this.modelStatus.modelIds.length > 0 ? this.modelStatus.modelIds.map(id => {
@@ -467,8 +574,20 @@ export class AppsView extends HTMLElement {
                   ${downloaded ? '<span class="badge downloaded">Downloaded</span>' : ''}
                   ${selected ? '<span class="badge selected">Selected</span>' : ''}
                   <div class="model-actions">
-                    ${!downloaded ? `<button class=\"filter-tab download-model-btn\" data-model-id=\"${id}\">Download</button>` : ''}
-                    ${!selected ? `<button class=\"filter-tab select-model-btn\" data-model-id=\"${id}\">Select</button>` : ''}
+                    ${!downloaded ? `
+                      <button class=\"icon-button download-model-btn\" data-model-id=\"${id}\" title=\"Download\" aria-label=\"Download\">
+                        <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M12 3v12m0 0l-4-4m4 4l4-4\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M5 21h14\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>
+                      </button>` : ''}
+                    ${!selected ? `
+                      <button class=\"icon-button select-model-btn\" data-model-id=\"${id}\" title=\"Select\" aria-label=\"Select\">
+                        <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M20 6L9 17l-5-5\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>
+                      </button>` : ''}
+                    <button class=\"icon-button delete-model-btn\" data-model-id=\"${id}\" title=\"Delete\" aria-label=\"Delete\">
+                      <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>
+                    </button>
+                    <button class=\"icon-button edit-model-btn\" data-model-id=\"${id}\" title=\"Edit\" aria-label=\"Edit\">
+                      <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M12 20h9\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4 12.5-12.5z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>
+                    </button>
                   </div>
                 </div>
               `
@@ -565,6 +684,37 @@ export class AppsView extends HTMLElement {
         const target = e.currentTarget as HTMLButtonElement
         const modelId = target.dataset.modelId as string
         await this.selectModel(modelId)
+      })
+    })
+
+    this.shadowRoot.querySelectorAll('.delete-model-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const target = e.currentTarget as HTMLButtonElement
+        const modelId = target.dataset.modelId as string
+        const ok = confirm(`Delete model \"${modelId}\"? This will remove it from configuration in a future update.`)
+        if (ok) {
+          alert('Delete model is not implemented yet.')
+        }
+      })
+    })
+
+    this.shadowRoot.querySelectorAll('.edit-model-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const target = e.currentTarget as HTMLButtonElement
+        const modelId = target.dataset.modelId as string
+        // Try to load config from storage for pre-population
+        let initial: any = { modelId }
+        try {
+          const result = await chrome.storage.local.get(['modelConfigs'])
+          const list = Array.isArray(result.modelConfigs) ? result.modelConfigs : []
+          const found = list.find((c: any) => c && c.modelId === modelId)
+          if (found) initial = { ...found }
+        } catch {
+          // ignore
+        }
+        await this.showEditModelForm(initial)
       })
     })
   }
