@@ -212,7 +212,7 @@ class LLMServiceWorker {
       }
       
       // Add model to list
-      const added = this.state.modelList.addModel(modelConfig.modelId, modelConfig);
+      const added = await this.state.modelList.addModel(modelConfig.modelId, modelConfig);
       // Also add to approved model configs
       this.state.approvedModelConfigs.set(added.modelId, added);
       
@@ -237,7 +237,7 @@ class LLMServiceWorker {
       const wasDownloaded = existing ? (existing as any).isDownloaded === true : false;
 
       // Overwrite existing config (using addModel to normalize defaults)
-      const updated = this.state.modelList.addModel(modelConfig.modelId, modelConfig);
+      const updated = await this.state.modelList.addModel(modelConfig.modelId, modelConfig);
       if (wasDownloaded) (updated as any).isDownloaded = true;
 
       // Keep approved list in sync

@@ -1,3 +1,5 @@
+import './model-item'
+
 export interface App {
   id: string
   domain: string
@@ -24,6 +26,7 @@ export class AppsView extends HTMLElement {
     downloadedModels: string[]
     currentSelectedModel: string | null
   } = { modelIds: [], downloadedModels: [], currentSelectedModel: null }
+  private openModelId: string | null = null
 
   constructor() {
     super()
@@ -568,28 +571,13 @@ export class AppsView extends HTMLElement {
             ${this.modelStatus.modelIds.length > 0 ? this.modelStatus.modelIds.map(id => {
               const downloaded = this.modelStatus.downloadedModels.includes(id)
               const selected = this.modelStatus.currentSelectedModel === id
+              const open = this.openModelId === id
               return `
-                <div class="model-item" data-model-id="${id}">
-                  <div class="model-id">${id}</div>
-                  ${downloaded ? '<span class="badge downloaded">Downloaded</span>' : ''}
-                  ${selected ? '<span class="badge selected">Selected</span>' : ''}
-                  <div class="model-actions">
-                    ${!downloaded ? `
-                      <button class=\"icon-button download-model-btn\" data-model-id=\"${id}\" title=\"Download\" aria-label=\"Download\">
-                        <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M12 3v12m0 0l-4-4m4 4l4-4\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M5 21h14\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>
-                      </button>` : ''}
-                    ${!selected ? `
-                      <button class=\"icon-button select-model-btn\" data-model-id=\"${id}\" title=\"Select\" aria-label=\"Select\">
-                        <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M20 6L9 17l-5-5\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>
-                      </button>` : ''}
-                    <button class=\"icon-button delete-model-btn\" data-model-id=\"${id}\" title=\"Delete\" aria-label=\"Delete\">
-                      <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>
-                    </button>
-                    <button class=\"icon-button edit-model-btn\" data-model-id=\"${id}\" title=\"Edit\" aria-label=\"Edit\">
-                      <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M12 20h9\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4 12.5-12.5z\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>
-                    </button>
-                  </div>
-                </div>
+                <model-item 
+                  model-id="${id}"
+                  downloaded="${downloaded}"
+                  selected="${selected}"
+                  open="${open}"></model-item>
               `
             }).join('') : `
               <div class="empty-state">
@@ -668,52 +656,35 @@ export class AppsView extends HTMLElement {
       })
     })
 
-    // Model buttons
-    this.shadowRoot.querySelectorAll('.download-model-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation()
-        const target = e.currentTarget as HTMLButtonElement
-        const modelId = target.dataset.modelId as string
+    // Model item events (custom element)
+    this.shadowRoot.querySelectorAll('model-item').forEach(item => {
+      item.addEventListener('item-click', (e: any) => {
+        const clickedId = e.detail?.modelId as string
+        this.openModelId = this.openModelId === clickedId ? null : clickedId
+        this.render()
+      })
+      item.addEventListener('download', async (e: any) => {
+        const modelId = e.detail?.modelId as string
         await this.downloadModel(modelId)
       })
-    })
-
-    this.shadowRoot.querySelectorAll('.select-model-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation()
-        const target = e.currentTarget as HTMLButtonElement
-        const modelId = target.dataset.modelId as string
+      item.addEventListener('select', async (e: any) => {
+        const modelId = e.detail?.modelId as string
         await this.selectModel(modelId)
       })
-    })
-
-    this.shadowRoot.querySelectorAll('.delete-model-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation()
-        const target = e.currentTarget as HTMLButtonElement
-        const modelId = target.dataset.modelId as string
+      item.addEventListener('delete', async (e: any) => {
+        const modelId = e.detail?.modelId as string
         const ok = confirm(`Delete model \"${modelId}\"? This will remove it from configuration in a future update.`)
-        if (ok) {
-          alert('Delete model is not implemented yet.')
-        }
+        if (ok) alert('Delete model is not implemented yet.')
       })
-    })
-
-    this.shadowRoot.querySelectorAll('.edit-model-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation()
-        const target = e.currentTarget as HTMLButtonElement
-        const modelId = target.dataset.modelId as string
-        // Try to load config from storage for pre-population
+      item.addEventListener('edit', async (e: any) => {
+        const modelId = e.detail?.modelId as string
         let initial: any = { modelId }
         try {
           const result = await chrome.storage.local.get(['modelConfigs'])
           const list = Array.isArray(result.modelConfigs) ? result.modelConfigs : []
           const found = list.find((c: any) => c && c.modelId === modelId)
           if (found) initial = { ...found }
-        } catch {
-          // ignore
-        }
+        } catch { /* ignore */ }
         await this.showEditModelForm(initial)
       })
     })

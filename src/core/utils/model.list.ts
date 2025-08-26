@@ -11,6 +11,13 @@ export interface ModelConfig {
     repoBase: string;
     modelFileName: string;
     modelExDataFileName?: string;
+    metainfo?: {
+        pipelineType?: string; // text-generation, etc..
+        lastModified?: string;
+        private?: boolean;
+        gated?: boolean;
+        passedOnnx?: boolean;
+    }
     // Note: Heavy data fields (configData, modelData, externalData) removed
     // Use fetchchunkstore functions to load model data on-demand
 }
@@ -24,6 +31,7 @@ export const OnnxModelConfigFill = (id: string, override?: Partial<ModelConfig>)
         repoBase: "resolve/main",
         modelFileName: "model.onnx",
         modelExDataFileName: undefined,
+        metainfo: undefined,
         ...override,
     }
 }
@@ -63,6 +71,36 @@ export const OnnxModelFetch = async (config: ModelConfig, progressFn?: (progress
     ]);
 }
 
+export const SoftcheckWithHF = async (modelId: string): Promise<ModelConfig['metainfo']> => {
+    const metadataUrl = `https://huggingface.co/api/models/${modelId}`;
+    const res = await fetch(metadataUrl, {
+        method: "GET",
+        headers: {
+            "Content-Type": "application/json",
+        }
+    });
+    const metadata = await res.json();
+    if(!('pipeline_tag' in metadata)) {
+        console.warn(`Model ${modelId} has no pipeline tag`);
+        return undefined;
+    } else if('disabled' in metadata && metadata.disabled) {
+        console.error(`Model ${modelId} is disabled -- We likely cannot use it`);
+    }
+    let passedOnnx = false;
+    if('tags' in metadata) {
+        const temp = metadata.tags as string[];
+        passedOnnx = temp.includes('onnx') || !!(temp.find(t => t.includes('onnx')));
+    }
+    if('gated' in metadata && metadata.gated) console.warn(`Model ${modelId} is gated -- Not set up at the moment`);
+    return {
+        pipelineType: metadata.pipeline_tag,
+        lastModified: metadata.lastModified,
+        private: metadata.private,
+        gated: metadata.gated,
+        passedOnnx
+    }
+}
+
 /**
  * The class to manage the approved model data lists
  * w/abilty to add new models
@@ -86,8 +124,14 @@ export class ModelDataList {
         return Array.from(this.modelConfigs.keys());
     }
 
-    addModel(modelId:string, options?: Partial<ModelConfig>): ModelConfig {
+    async addModel(modelId:string, options?: Partial<ModelConfig>, softcheck = true): Promise<ModelConfig> {
         const config = OnnxModelConfigFill(modelId, options);
+        if(softcheck) {
+            const metainfo = await SoftcheckWithHF(modelId);
+            if(metainfo) {
+                config.metainfo = metainfo;
+            }
+        }
         this.modelConfigs.set(modelId, config);
         return config;
     }

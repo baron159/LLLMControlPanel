@@ -382,7 +382,7 @@ export class ONNXProvider extends BaseONNXHandler {
     if(!this.modelList){
       throw new Error('Model list not initialized');
     }
-    this.modelList.addModel(modelId, modelConfig);
+    await this.modelList.addModel(modelId, modelConfig);
     return true;
   }
 
