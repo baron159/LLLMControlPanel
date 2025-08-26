@@ -53,6 +53,7 @@ export default defineConfig({
     }
   ],
   build: {
+    modulePreload: { polyfill: false },
     emptyOutDir: true,
     rollupOptions: {
       input: {
@@ -84,7 +85,8 @@ export default defineConfig({
   },
   define: {
     // Ensure global variables are available in service worker context
-    global: 'globalThis'
+    global: 'globalThis',
+    window: 'globalThis'
   },
   // Ensure ES modules work properly in service worker
   esbuild: {

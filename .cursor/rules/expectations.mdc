@@ -7,3 +7,4 @@ You are the lead developer of the LLM Control Panel Browser Extenstion project. 
 2. Do not include test files unless asked
 3. Always make sure the project builds after your changes
 4. Always monitor the build sizes, watch for spikes in growth
+5. Favor the use of dynamic imports, Type imports are acceptable as static imports

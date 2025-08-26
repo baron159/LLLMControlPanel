@@ -266,8 +266,15 @@ class LLMServiceWorker {
       
       console.log(`Starting download for model: ${modelId}`);
       
-      // Use the existing model loading functionality
-      await this.state.modelList.loadModel(modelId);
+      // Use the existing model loading functionality with progress notifications
+      const progressFn = (info: any) => {
+        try {
+          chrome.runtime.sendMessage({ type: 'downloadProgress', modelId, info });
+        } catch (e) {
+          // ignore if no listeners
+        }
+      };
+      await this.state.modelList.loadModel(modelId, progressFn);
       
       // Check if model data was successfully stored
       const { hasModelData } = await import('../core/utils/fetchchunkstore');
@@ -279,6 +286,7 @@ class LLMServiceWorker {
         await this.saveModelConfigsToStorage();
         
         console.log(`Model ${modelId} downloaded successfully`);
+        try { chrome.runtime.sendMessage({ type: 'downloadComplete', modelId }); } catch {}
         return { success: true, message: 'Model downloaded successfully' };
       } else {
         return { success: false, message: 'Failed to download model data' };
@@ -287,6 +295,27 @@ class LLMServiceWorker {
     } catch (error) {
       console.error(`Failed to download model ${modelId}:`, error);
       return { success: false, message: `Download failed: ${error}` };
+    }
+  }
+
+  async handleClearModel(modelId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const config = this.state.modelList.getModelConfig(modelId);
+      if (!config) return { success: false, message: 'Model not found in configuration' };
+      const { deleteModelData, hasModelData } = await import('../core/utils/fetchchunkstore');
+      const hadData = await hasModelData(modelId);
+      if (!hadData) return { success: true, message: 'No model data to clear' };
+      const ok = await deleteModelData(modelId);
+      if (ok) {
+        (config as any).isDownloaded = false;
+        await this.saveModelConfigsToStorage();
+        try { chrome.runtime.sendMessage({ type: 'modelCleared', modelId }); } catch {}
+        return { success: true, message: 'Model data cleared' };
+      }
+      return { success: false, message: 'Failed to clear model data' };
+    } catch (error) {
+      console.error('Failed to clear model data:', error);
+      return { success: false, message: `Failed to clear model data: ${error}` };
     }
   }
 
@@ -501,6 +530,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             return { success: false, message: 'Model ID is required' };
           }
           return await llmServiceWorker.handleDownloadModel(message.modelId);
+        
+        case 'clearModel':
+          if (!message.modelId) {
+            return { success: false, message: 'Model ID is required' };
+          }
+          return await llmServiceWorker.handleClearModel(message.modelId);
           
         case 'status':
           return {

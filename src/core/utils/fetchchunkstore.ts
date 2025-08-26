@@ -63,6 +63,26 @@ async function storeChunk(db: IDBDatabase, key: string, chunk: ArrayBuffer): Pro
     });
 }
 
+async function deleteChunk(db: IDBDatabase, key: string): Promise<void> {
+    return new Promise((res, rej) => {
+        const tx = db.transaction('chunks', 'readwrite');
+        const s = tx.objectStore('chunks');
+        const req = s.delete(key);
+        req.onsuccess = () => res();
+        req.onerror = () => rej(req.error);
+    });
+}
+
+async function deleteModelMeta(db: IDBDatabase, modelId: string): Promise<void> {
+    return new Promise((res, rej) => {
+        const tx = db.transaction('models', 'readwrite');
+        const s = tx.objectStore('models');
+        const req = s.delete(modelId);
+        req.onsuccess = () => res();
+        req.onerror = () => rej(req.error);
+    });
+}
+
 async function loadChunk(db: IDBDatabase, key: string): Promise<ArrayBuffer> {
     return new Promise((res, rej) => {
         const tx = db.transaction('chunks', 'readonly');
@@ -206,4 +226,20 @@ export async function hasModelData(modelId: string): Promise<boolean> {
     const db = await openDb();
     const meta = await getModelMeta(db, modelId);
     return !!meta;
+}
+
+// Remove stored chunks and meta for a model
+export async function deleteModelData(modelId: string): Promise<boolean> {
+    const db = await openDb();
+    const meta = await getModelMeta(db, modelId);
+    if (!meta) return false;
+    for (const key of meta.chunkKeys) {
+        try { await deleteChunk(db, key); } catch {
+            // ignore individual chunk delete errors
+        }
+    }
+    try { await deleteModelMeta(db, modelId); } catch {
+        // ignore
+    }
+    return true;
 }

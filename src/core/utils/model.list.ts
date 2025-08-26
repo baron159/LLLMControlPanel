@@ -3,6 +3,8 @@
  *      Model Config list is used to store/manage approved models
  */
 import type { PreTrainedTokenizer } from '@huggingface/transformers';
+import { storeData, loadData, loadOrFetchModel, hasModelData } from './fetchchunkstore.ts';
+import { fetchAndCache } from './fetchncache.ts';
 export interface ModelConfig {
     modelId:string; // We assume  the modelId is the in `<user>/<repo>` format
     urlBase: string; // The base url of the model default will be huggingface
@@ -38,20 +40,16 @@ export const OnnxModelConfigFill = (id: string, override?: Partial<ModelConfig>)
 
 // Helper function to store model config data
 const storeModelConfig = async (modelId: string, configData: any): Promise<void> => {
-    const { storeData } = await import('./fetchchunkstore.ts');
     await storeData(`${modelId}_config`, configData);
 };
 
 // Helper function to load model config data
 export const loadModelConfig = async (modelId: string): Promise<any> => {
-    const { loadData } = await import('./fetchchunkstore.ts');
     return await loadData(`${modelId}_config`);
 };
 
 export const OnnxModelFetch = async (config: ModelConfig, progressFn?: (progress: {type:string, msg: string, progress: number, part: string}) => void): Promise<void> => {
     const { modelId, urlBase, onnxDir, configFileName, repoBase, modelFileName, modelExDataFileName } = config;
-    const { loadOrFetchModel } = await import('./fetchchunkstore.ts');
-    const { fetchAndCache } = await import('./fetchncache.ts');
     const repoUrl = `${urlBase}/${modelId}/${repoBase}`;
     const configUrl = `${repoUrl}/${configFileName}`;
     const modelFileUrl = `${repoUrl}/${onnxDir}/${modelFileName}`;
@@ -142,7 +140,6 @@ export class ModelDataList {
             throw new Error(`Model ${modelId} not found`);
         }
         // Check if model data is already stored in IndexedDB
-        const { hasModelData } = await import('./fetchchunkstore.ts');
         const modelExists = await hasModelData(modelId);
         if (modelExists) {
             return config; // Model data exists in storage

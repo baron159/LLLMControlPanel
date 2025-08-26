@@ -139,6 +139,16 @@ export class AppsView extends HTMLElement {
     })
   }
 
+  private async clearModel(modelId: string): Promise<void> {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'clearModel', modelId }, async (_response) => {
+        await this.fetchModelStatus()
+        this.render()
+        resolve()
+      })
+    })
+  }
+
   private async selectModel(modelId: string): Promise<void> {
     return new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: 'setSelectedModel', modelId }, async (_response) => {
@@ -666,6 +676,10 @@ export class AppsView extends HTMLElement {
       item.addEventListener('download', async (e: any) => {
         const modelId = e.detail?.modelId as string
         await this.downloadModel(modelId)
+      })
+      item.addEventListener('clear', async (e: any) => {
+        const modelId = e.detail?.modelId as string
+        await this.clearModel(modelId)
       })
       item.addEventListener('select', async (e: any) => {
         const modelId = e.detail?.modelId as string

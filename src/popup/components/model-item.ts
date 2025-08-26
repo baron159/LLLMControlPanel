@@ -7,6 +7,8 @@ export class ModelItem extends HTMLElement {
   private _downloaded: boolean = false
   private _selected: boolean = false
   private _open: boolean = false
+  private _downloading: boolean = false
+  private _progressText: string = ''
   private _metainfo: {
     pipelineType?: string
     lastModified?: string
@@ -23,6 +25,7 @@ export class ModelItem extends HTMLElement {
   connectedCallback() {
     this.render()
     this.loadMetainfo()
+    this.listenForProgress()
   }
 
   attributeChangedCallback(name: string, _oldVal: string | null, newVal: string | null) {
@@ -70,6 +73,40 @@ export class ModelItem extends HTMLElement {
     }
   }
 
+  private listenForProgress() {
+    chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
+      if (!this._modelId) return
+      if (message?.type === 'downloadProgress' && message.modelId === this._modelId) {
+        const info = message.info
+        this._downloading = true
+        if (info?.type === 'download') {
+          const loaded = info.loaded || 0
+          const total = info.total || 0
+          const pct = total ? Math.round((loaded / total) * 100) : undefined
+          this._progressText = pct !== undefined ? `Downloading ${pct}%` : `Downloading...`
+        } else if (info?.type === 'chunkStored') {
+          this._progressText = `Storing chunks (${(info.chunkIndex ?? 0) + 1})`
+        } else if (info?.type === 'complete') {
+          this._progressText = 'Finalizing'
+        } else if (info?.type === 'error') {
+          this._progressText = 'Error'
+          this._downloading = false
+        } else if (info?.type === 'info') {
+          this._progressText = info.msg || '...'
+        }
+        this.render()
+      } else if (message?.type === 'downloadComplete' && message.modelId === this._modelId) {
+        this._downloading = false
+        this._progressText = ''
+        this.render()
+      } else if (message?.type === 'modelCleared' && message.modelId === this._modelId) {
+        this._downloading = false
+        this._progressText = ''
+        this.render()
+      }
+    })
+  }
+
   private onHeaderClick = (e: Event) => {
     // prevent button clicks from toggling
     const target = e.target as HTMLElement
@@ -88,11 +125,21 @@ export class ModelItem extends HTMLElement {
     const selectBtn = root.querySelector('#select-btn') as HTMLButtonElement | null
     const deleteBtn = root.querySelector('#delete-btn') as HTMLButtonElement | null
     const editBtn = root.querySelector('#edit-btn') as HTMLButtonElement | null
+    const clearBtn = root.querySelector('#clear-btn') as HTMLButtonElement | null
 
     if (downloadBtn) {
       downloadBtn.addEventListener('click', (e) => {
         e.stopPropagation()
+        this._downloading = true
+        this._progressText = 'Starting...'
+        this.render()
         this.dispatchEvent(new CustomEvent('download', { bubbles: true, composed: true, detail: { modelId: this._modelId } }))
+      })
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        this.dispatchEvent(new CustomEvent('clear', { bubbles: true, composed: true, detail: { modelId: this._modelId } }))
       })
     }
     if (selectBtn) {
@@ -135,10 +182,13 @@ export class ModelItem extends HTMLElement {
         .downloaded { color:#2e7d32; background:rgba(46,125,50,0.12); }
         .selected { color:#aa00ff; background:rgba(170,0,255,0.12); }
         .spacer { flex:1; }
-        .actions { display:flex; gap:6px; }
+        .actions { display:flex; gap:6px; align-items:center; }
         .icon-button { width:28px; height:28px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:none; background:none; cursor:pointer; border-radius:6px; color:#666; }
         .icon-button:hover { background:#f0f0f0; color:#333; }
         .dark .icon-button:hover { background:#404040; color:#e0e0e0; }
+        .progress { font-size:11px; color:#666; margin-right:6px; }
+        .spinner { width:14px; height:14px; border:2px solid #ccc; border-top-color:#007AFF; border-radius:50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
         .details { overflow:hidden; max-height:0; transition:max-height 0.2s ease; }
         .details-inner { padding:0 12px 12px 12px; font-size:12px; color:#555; }
         .dark .details-inner { color:#ddd; }
@@ -154,9 +204,14 @@ export class ModelItem extends HTMLElement {
           </div>
           <div class="spacer"></div>
           <div class="actions">
-            ${!downloaded ? `
+            ${this._downloading ? `<span class=\"progress\">${this._progressText}</span><span class=\"spinner\" aria-hidden=\"true\"></span>` : ''}
+            ${!downloaded && !this._downloading ? `
               <button class="icon-button" id="download-btn" title="Download" aria-label="Download">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v12m0 0l-4-4m4 4l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </button>` : ''}
+            ${downloaded && !this._downloading ? `
+              <button class="icon-button" id="clear-btn" title="Clear" aria-label="Clear">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>` : ''}
             ${!selected ? `
               <button class="icon-button" id="select-btn" title="Select" aria-label="Select">
