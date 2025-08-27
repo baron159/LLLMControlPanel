@@ -3,6 +3,9 @@ import { ThemeManager } from '../../core/utils/theme-manager'
 export class ChatView extends HTMLElement {
   private themeManager = ThemeManager.getInstance()
   private downloadedModels: string[] = []
+  private worker?: Worker
+  private currentModelId: string | null = null
+  private modelLoaded = false
 
   constructor() {
     super()
@@ -40,6 +43,14 @@ export class ChatView extends HTMLElement {
     select.innerHTML = this.downloadedModels.length > 0
       ? this.downloadedModels.map(id => `<option value="${id}">${id}</option>`).join('')
       : '<option value="" disabled selected>No downloaded models</option>'
+
+    if (this.downloadedModels.length > 0) {
+      // Auto-select the first model if none selected
+      this.currentModelId = this.currentModelId || this.downloadedModels[0]
+      select.value = this.currentModelId!
+      this.ensureWorker()
+      this.loadSelectedModel()
+    }
   }
 
   private render() {
@@ -66,6 +77,7 @@ export class ChatView extends HTMLElement {
         <div class="toolbar">
           <label for="model-select" style="font-size:12px; color:#666;">Model</label>
           <select id="model-select" class="select" aria-label="Select downloaded model"></select>
+          <span id="model-status" style="font-size:12px; color:#666;"></span>
         </div>
         <div class="chat-area">
           <div class="messages" id="messages"></div>
@@ -87,17 +99,94 @@ export class ChatView extends HTMLElement {
       send.disabled = input.value.trim().length === 0
     })
 
-    // UI-only stub for send
-    send.addEventListener('click', () => {
-      const msg = input.value.trim()
-      if (!msg) return
-      const messages = this.shadowRoot?.querySelector('#messages') as HTMLDivElement
-      const div = document.createElement('div')
-      div.textContent = `You: ${msg}`
-      messages.appendChild(div)
-      input.value = ''
-      send.disabled = true
+    const select = this.shadowRoot.querySelector('#model-select') as HTMLSelectElement
+    select.addEventListener('change', () => {
+      this.currentModelId = select.value || null
+      this.modelLoaded = false
+      this.updateModelStatus('Loading...')
+      this.ensureWorker()
+      this.loadSelectedModel()
     })
+
+    send.addEventListener('click', () => this.handleSend())
+  }
+
+  private updateModelStatus(text: string) {
+    const el = this.shadowRoot?.querySelector('#model-status') as HTMLSpanElement | null
+    if (el) el.textContent = text
+  }
+
+  private ensureWorker() {
+    if (this.worker) return
+    try {
+      this.worker = new Worker(chrome.runtime.getURL('onnx-worker.js'), { type: 'module' })
+      this.worker.onmessage = (e: MessageEvent<any>) => this.handleWorkerMessage(e.data)
+      this.worker.onerror = (e) => {
+        console.error('Chat worker error:', e)
+        this.updateModelStatus('Worker error')
+      }
+    } catch (e) {
+      console.error('Failed to start worker', e)
+      this.updateModelStatus('Worker failed to start')
+    }
+  }
+
+  private async loadSelectedModel() {
+    if (!this.worker || !this.currentModelId) return
+    try {
+      // Load full model config from storage
+      const result = await chrome.storage.local.get(['modelConfigs'])
+      const list = Array.isArray(result.modelConfigs) ? result.modelConfigs : []
+      const config = list.find((c: any) => c && c.modelId === this.currentModelId)
+      if (!config) {
+        this.updateModelStatus('Config not found')
+        return
+      }
+      this.worker.postMessage({ type: 'loadModel', payload: config })
+      this.updateModelStatus('Loading...')
+    } catch (e) {
+      console.error('Failed to load model config', e)
+      this.updateModelStatus('Load failed')
+    }
+  }
+
+  private handleWorkerMessage(msg: any) {
+    if (!this.shadowRoot) return
+    if (msg?.type === 'success' && msg?.payload?.loaded) {
+      this.modelLoaded = true
+      this.updateModelStatus('Ready')
+      // Enable send if input has content
+      const input = this.shadowRoot.querySelector('#input') as HTMLTextAreaElement
+      const send = this.shadowRoot.querySelector('#send') as HTMLButtonElement
+      send.disabled = input.value.trim().length === 0
+      return
+    }
+    if (msg?.type === 'success' && typeof msg?.payload?.response === 'string') {
+      const messages = this.shadowRoot.querySelector('#messages') as HTMLDivElement
+      const div = document.createElement('div')
+      div.textContent = `Assistant: ${msg.payload.response}`
+      messages.appendChild(div)
+      return
+    }
+    if (msg?.type === 'error') {
+      console.error('Worker error:', msg?.payload)
+      this.updateModelStatus('Error')
+    }
+  }
+
+  private handleSend() {
+    if (!this.shadowRoot) return
+    const input = this.shadowRoot.querySelector('#input') as HTMLTextAreaElement
+    const send = this.shadowRoot.querySelector('#send') as HTMLButtonElement
+    const text = input.value.trim()
+    if (!text || !this.worker || !this.modelLoaded) return
+    const messages = this.shadowRoot.querySelector('#messages') as HTMLDivElement
+    const div = document.createElement('div')
+    div.textContent = `You: ${text}`
+    messages.appendChild(div)
+    input.value = ''
+    send.disabled = true
+    this.worker.postMessage({ type: 'inference', payload: { input: text } })
   }
 }
 

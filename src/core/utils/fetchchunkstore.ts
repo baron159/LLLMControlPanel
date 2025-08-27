@@ -198,6 +198,93 @@ export async function loadOrFetchModel(
     return out.buffer;
 }
 
+// Stream the model from network and store into IndexedDB in fixed-size chunks,
+// without ever assembling the full model in memory.
+export async function streamAndStoreModel(
+    url: string,
+    modelId: string,
+    progressCallback?: ProgressCallback
+): Promise<void> {
+    const db = await openDb();
+    const existing = await getModelMeta(db, modelId);
+    if (existing) {
+        // Already stored
+        progressCallback?.({ type: 'info', modelId, msg: 'Already cached' });
+        return;
+    }
+
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
+    const reader = resp.body?.getReader();
+    if (!reader) {
+        // Fallback: small files path
+        const buf = await resp.arrayBuffer();
+        const parts = splitIntoChunks(buf);
+        const chunkKeys: string[] = [];
+        let chunkCounter = 0;
+        for (const p of parts) {
+            const key = `${modelId}::chunk::${chunkCounter}`;
+            await storeChunk(db, key, p);
+            chunkKeys.push(key);
+            progressCallback?.({ type: 'chunkStored', modelId, chunkIndex: chunkCounter, bytesStored: p.byteLength });
+            chunkCounter++;
+        }
+        await putModelMeta(db, { modelId, chunkKeys });
+        const totalBytes = parts.reduce((s, b) => s + b.byteLength, 0);
+        progressCallback?.({ type: 'complete', modelId, totalBytes });
+        return;
+    }
+
+    const total = resp.headers.get('content-length')
+        ? parseInt(resp.headers.get('content-length')!, 10)
+        : undefined;
+    let received = 0;
+    let chunkCounter = 0;
+    const chunkKeys: string[] = [];
+    let buffer = new Uint8Array(CHUNK_SIZE);
+    let offset = 0;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        let src = value;
+        while (src.byteLength > 0) {
+            const space = buffer.byteLength - offset;
+            const toCopy = Math.min(space, src.byteLength);
+            buffer.set(src.subarray(0, toCopy), offset);
+            offset += toCopy;
+            received += toCopy;
+            progressCallback?.({ type: 'download', url, loaded: received, total });
+            src = src.subarray(toCopy);
+
+            if (offset === buffer.byteLength) {
+                // flush
+                const key = `${modelId}::chunk::${chunkCounter}`;
+                await storeChunk(db, key, buffer.buffer.slice(0));
+                chunkKeys.push(key);
+                progressCallback?.({ type: 'chunkStored', modelId, chunkIndex: chunkCounter, bytesStored: buffer.byteLength });
+                chunkCounter++;
+                buffer = new Uint8Array(CHUNK_SIZE);
+                offset = 0;
+            }
+        }
+    }
+
+    if (offset > 0) {
+        const finalBuf = new Uint8Array(offset);
+        finalBuf.set(buffer.subarray(0, offset));
+        const key = `${modelId}::chunk::${chunkCounter}`;
+        await storeChunk(db, key, finalBuf.buffer);
+        chunkKeys.push(key);
+        progressCallback?.({ type: 'chunkStored', modelId, chunkIndex: chunkCounter, bytesStored: finalBuf.byteLength });
+    }
+
+    await putModelMeta(db, { modelId, chunkKeys });
+    const totalBytes = chunkKeys.length * CHUNK_SIZE - (CHUNK_SIZE - offset) % CHUNK_SIZE;
+    progressCallback?.({ type: 'complete', modelId, totalBytes });
+}
+
 // Generic data storage functions for JSON/config data
 export async function storeData(key: string, data: any): Promise<void> {
     const db = await openDb();

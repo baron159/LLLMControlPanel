@@ -5,6 +5,7 @@
 
 import { ModelConfig, ModelDataList, OnnxModelConfigFill } from '../core/utils/model.list';
 import { WebNNUtils } from '../core/utils/webnn-utils';
+import { hasModelData, deleteModelData } from '../core/utils/fetchchunkstore';
 
 interface ApprovedApp {
   id: string;
@@ -277,7 +278,6 @@ class LLMServiceWorker {
       await this.state.modelList.loadModel(modelId, progressFn);
       
       // Check if model data was successfully stored
-      const { hasModelData } = await import('../core/utils/fetchchunkstore');
       const modelExists = await hasModelData(modelId);
       
       if (modelExists) {
@@ -302,7 +302,6 @@ class LLMServiceWorker {
     try {
       const config = this.state.modelList.getModelConfig(modelId);
       if (!config) return { success: false, message: 'Model not found in configuration' };
-      const { deleteModelData, hasModelData } = await import('../core/utils/fetchchunkstore');
       const hadData = await hasModelData(modelId);
       if (!hadData) return { success: true, message: 'No model data to clear' };
       const ok = await deleteModelData(modelId);

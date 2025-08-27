@@ -3,7 +3,7 @@
  *      Model Config list is used to store/manage approved models
  */
 import type { PreTrainedTokenizer } from '@huggingface/transformers';
-import { storeData, loadData, loadOrFetchModel, hasModelData } from './fetchchunkstore.ts';
+import { storeData, loadData, loadOrFetchModel, hasModelData, streamAndStoreModel } from './fetchchunkstore.ts';
 import { fetchAndCache } from './fetchncache.ts';
 export interface ModelConfig {
     modelId:string; // We assume  the modelId is the in `<user>/<repo>` format
@@ -56,9 +56,10 @@ export const OnnxModelFetch = async (config: ModelConfig, progressFn?: (progress
     const modelExDataUrl = `${repoUrl}/${onnxDir}/${modelExDataFileName}`;
     
     // Download and store model data in IndexedDB using fetchchunkstore
+    // Stream model file directly to IndexedDB to avoid large ArrayBuffer allocations
     await Promise.all([
         // @ts-ignore
-        loadOrFetchModel(modelFileUrl, modelId, progressFn),
+        streamAndStoreModel(modelFileUrl, modelId, progressFn),
         // Store config data separately with a config-specific key
         fetchAndCache(configUrl).then(res => res.json()).then(configData => {
             // Store config in IndexedDB with a special key

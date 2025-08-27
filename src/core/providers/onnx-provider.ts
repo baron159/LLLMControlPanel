@@ -78,9 +78,8 @@ export abstract class BaseONNXHandler {
       }
 
       if (!this.modelList) {
-        this.modelList = await import('@/core/utils/model.list').then(({ModelDataList}) => {
-          return new ModelDataList([]);
-        });
+        const { ModelDataList } = await import('@/core/utils/model.list');
+        this.modelList = new ModelDataList([]);
       }
 
       await this.webnnUtils.initialize()
@@ -146,7 +145,7 @@ export abstract class BaseONNXHandler {
         console.log(`${type}//${msg} ${progress} ${part}`);
       }
       
-      // Download and store model data in IndexedDB
+      // Download and store model data in IndexedDB (streaming storage)
       await OnnxModelFetch(modelConfig, progressFn);
       
       // Load the stored model data
