@@ -166,7 +166,10 @@ const externalData = cachedModel.externalData;
 **After:**
 ```typescript
 // On-demand loading from storage
-const modelData = await loadOrFetchModel(cachedModel.modelId, cachedModel.url);
+const modelData = await loadOrFetchModel(
+  `${cachedModel.urlBase}/${cachedModel.modelId}/${cachedModel.repoBase}/${cachedModel.onnxDir}/${cachedModel.modelFileName}`,
+  cachedModel.modelId
+);
 const configData = await loadModelConfig(cachedModel.modelId);
 
 // Optional external data

@@ -100,6 +100,16 @@ chrome.runtime.sendMessage({
 }
 ```
 
+Runtime messages emitted during download:
+
+- `downloadProgress`: `{ type: 'downloadProgress', modelId, info }`
+  - `info.type`: `download` | `chunkStored` | `complete` | `error` | `info`
+  - `download`: `{ loaded, total? }`
+  - `chunkStored`: `{ chunkIndex, bytesStored }`
+  - `complete`: `{ totalBytes }`
+
+- `downloadComplete`: `{ type: 'downloadComplete', modelId }`
+
 #### 4. `setSelectedModel`
 
 Sets the currently selected model for inference.
@@ -239,6 +249,25 @@ chrome.runtime.sendMessage({
 ```
 
 #### 10. `checkAppApproval`
+
+#### 11. `clearModel`
+
+Clears stored model chunks and metadata from IndexedDB for a given `modelId`.
+
+Request:
+```javascript
+chrome.runtime.sendMessage({ type: 'clearModel', modelId: 'Xenova/TinyLlama-1.1B-Chat-v1.0' })
+```
+
+Response:
+```javascript
+{ success: boolean, message: string }
+```
+
+Runtime message after successful clear:
+```javascript
+{ type: 'modelCleared', modelId }
+```
 
 Checks whether an origin is currently approved.
 

@@ -68,12 +68,12 @@ interface ModelConfig {
 IndexedDB-based storage system with the following capabilities:
 
 #### Core Functions
-- `loadOrFetchModel(modelId, url)`: Load model from storage or fetch and store if not cached
+- `loadOrFetchModel(url, modelId, progress?)`: Load model from storage or fetch and store if not cached
+- `streamAndStoreModel(url, modelId, progress?)`: Stream large models directly to IndexedDB in fixed-size chunks (no large ArrayBuffer)
 - `storeData(key, data)`: Store JSON/config data in IndexedDB
 - `loadData(key)`: Retrieve JSON/config data from IndexedDB
 - `hasModelData(modelId)`: Check if model data exists in storage
 
-#### Chunked Storage
 - Models are split into chunks for efficient storage and retrieval
 - Automatic deduplication prevents storing duplicate model data
 - Progress tracking during fetch and storage operations

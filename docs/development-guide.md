@@ -115,10 +115,10 @@ const value = result.key;
 #### IndexedDB (for large data)
 ```typescript
 // Use existing utilities
-import {loadOrFetchModel, getModelMeta} from '../core/utils/fetchchunkstore';
+import {loadOrFetchModel, streamAndStoreModel} from '../core/utils/fetchchunkstore';
 
-// Store model data
-const success = await loadOrFetchModel(url, modelId);
+// Stream and store model data
+await streamAndStoreModel(url, modelId, (info) => console.log(info));
 
 // Check model metadata
 const meta = await getModelMeta(modelId);
