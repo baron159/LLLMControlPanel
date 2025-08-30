@@ -67,13 +67,18 @@ class WorkerONNXProvider {
       // Load model data from storage
       const { loadOrFetchModel } = await import('../core/utils/fetchchunkstore');
       const { loadModelConfig } = await import('../core/utils/model.list');
-      
+
       let modelData: ArrayBuffer;
       try {
+        console.log(`Loading model data for ${modelId} from storage...`);
         modelData = await loadOrFetchModel(
           `${config.urlBase}/${config.modelId}/${config.repoBase}/${config.onnxDir}/${config.modelFileName}`,
-          config.modelId
+          config.modelId,
+          (progress) => {
+            console.log(`Model loading progress:`, progress);
+          }
         );
+        console.log(`Model data loaded successfully. Size: ${modelData.byteLength} bytes`);
       } catch (error) {
         console.error(`Failed to load model data for ${modelId}:`, error);
         return false;
@@ -98,40 +103,51 @@ class WorkerONNXProvider {
       // can be added here when implementing more sophisticated generation
       
       // Load tokenizer in worker context
-  try {
-    console.log(`Loading tokenizer for ${modelId}`);
-    
-    // Import transformers dynamically to avoid build issues
-    const { AutoTokenizer } = await import('@huggingface/transformers');
-    
-    // Load tokenizer with worker-compatible options
-     const tokenizer = await AutoTokenizer.from_pretrained(modelId, {
-       // Disable DOM-dependent features
-       local_files_only: false,
-       // Ensure worker compatibility
-       revision: 'main'
-     });
-    
-    this.tokenizers.set(modelId, tokenizer);
-    console.log(`Tokenizer loaded successfully for ${modelId}`);
-  } catch (error) {
-    console.error(`Failed to load tokenizer for ${modelId}:`, error);
-    return false;
-  }
+      try {
+        console.log(`Loading tokenizer for ${modelId}`);
+        
+        // Import transformers dynamically to avoid build issues
+        const { AutoTokenizer } = await import('@huggingface/transformers');
+        
+        // Load tokenizer with worker-compatible options
+         const tokenizer = await AutoTokenizer.from_pretrained(modelId, {
+           // Disable DOM-dependent features
+           local_files_only: false,
+           // Ensure worker compatibility
+           revision: 'main'
+         });
+        
+        this.tokenizers.set(modelId, tokenizer);
+        console.log(`Tokenizer loaded successfully for ${modelId}`);
+      } catch (error) {
+        console.error(`Failed to load tokenizer for ${modelId}:`, error);
+        return false;
+      }
       
       // Load external data if exists
       let externalData: { path: string, data: ArrayBuffer }[] | undefined;
       if (config.modelExDataFileName) {
         try {
-          const { loadData } = await import('../core/utils/fetchchunkstore');
-          const externalDataBuffer = await loadData(`${config.modelId}_external`);
+          console.log(`Loading external data for ${modelId}: ${config.modelExDataFileName}`);
+          // const { loadData } = await import('../core/utils/fetchchunkstore');
+          const externalDataBuffer = await loadOrFetchModel('', `${config.modelId}_external`, console.info);
+          console.log(`External data loaded:`, externalDataBuffer ? `${externalDataBuffer.byteLength} bytes` : 'null');
           if (externalDataBuffer) {
             externalData = [{ path: `./${config.modelExDataFileName}`, data: externalDataBuffer }];
+            console.log(`External data prepared for ONNX session:`, externalData);
+            console.log(`External data array length:`, externalData.length);
+            console.log(`External data first item:`, externalData[0]);
+          } else {
+            console.warn(`External data buffer is null/undefined for ${modelId}`);
           }
         } catch (error) {
           console.warn(`Failed to load external data for ${modelId}:`, error);
         }
+      } else {
+        console.log(`No external data file specified for ${modelId}`);
       }
+      
+      console.log(`External data variable before session options:`, externalData);
       
       // Create ONNX session
       const sessionOptions: any = {
@@ -139,11 +155,24 @@ class WorkerONNXProvider {
         graphOptimizationLevel: 'all',
         enableCpuMemArena: true,
         enableMemPattern: true,
-        executionMode: 'sequential',
-        externalData
+        executionMode: 'sequential'
       };
       
+      // Only add externalData if it exists
+      if (externalData && externalData.length > 0) {
+        sessionOptions.externalData = externalData;
+        console.log(`Added external data to session options:`, sessionOptions.externalData);
+      } else {
+        console.log(`No external data to add to session options`);
+      }
+      
+      console.log(`Creating ONNX session for ${modelId} with options:`, sessionOptions);
+      console.log(`Model data type: ${modelData.constructor.name}, size: ${modelData.byteLength}`);
+      
       const session = await this.ort.InferenceSession.create(modelData, sessionOptions);
+      console.log(`ONNX session created successfully for ${modelId}`);
+      console.log(`Input names: ${session.inputNames.join(', ')}`);
+      console.log(`Output names: ${session.outputNames.join(', ')}`);
       
       // Store session info
       const onnxSession: ONNXSession = {

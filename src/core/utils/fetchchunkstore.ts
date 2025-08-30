@@ -2,7 +2,14 @@
  * This file contains the code to fetch a model from a remote server and store it in the IndexedDB.
  *  Logic that can be used by any part of the app
  */
-const CHUNK_SIZE = 50 * 1024 * 1024; // 50 MB
+const CHUNK_SIZE = 50 * 1024 * 1024; // 50 MB
+
+// Simple hash function for binary verification
+async function calculateHash(buffer: ArrayBuffer): Promise<string> {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 type ProgressInfo =
     | { type: 'download'; url: string; loaded: number; total?: number }
@@ -16,6 +23,8 @@ type ProgressCallback = (info: ProgressInfo) => void;
 interface ModelMeta {
     modelId: string;
     chunkKeys: string[];
+    originalHash?: string;
+    totalBytes?: number;
 }
 
 async function openDb(): Promise<IDBDatabase> {
@@ -97,8 +106,11 @@ function splitIntoChunks(buffer: ArrayBuffer): ArrayBuffer[] {
     const chunks: ArrayBuffer[] = [];
     const view = new Uint8Array(buffer);
     for (let i = 0; i < view.byteLength; i += CHUNK_SIZE) {
-        const slice = view.subarray(i, Math.min(i + CHUNK_SIZE, view.byteLength));
-        chunks.push(slice.buffer.slice(0));
+        const chunkSize = Math.min(CHUNK_SIZE, view.byteLength - i);
+        const chunk = new ArrayBuffer(chunkSize);
+        const chunkView = new Uint8Array(chunk);
+        chunkView.set(view.subarray(i, i + chunkSize));
+        chunks.push(chunk);
     }
     return chunks;
 }
@@ -150,16 +162,42 @@ export async function loadOrFetchModel(
     const db = await openDb();
     const existing = await getModelMeta(db, modelId);
     if (existing) {
-        const buffers = await Promise.all(existing.chunkKeys.map(k => loadChunk(db, k)));
-        const totalBytes = buffers.reduce((s, b) => s + b.byteLength, 0);
-        const out = new Uint8Array(totalBytes);
-        let offset = 0;
-        for (const b of buffers) {
-            out.set(new Uint8Array(b), offset);
-            offset += b.byteLength;
+        try {
+            const buffers = await Promise.all(existing.chunkKeys.map(k => loadChunk(db, k)));
+            const totalBytes = buffers.reduce((s, b) => s + b.byteLength, 0);
+            const out = new Uint8Array(totalBytes);
+            let offset = 0;
+            for (const b of buffers) {
+                out.set(new Uint8Array(b), offset);
+                offset += b.byteLength;
+            }
+            
+            // Verify binary integrity if hash is available
+            if (existing.originalHash) {
+                const reconstructedHash = await calculateHash(out.buffer);
+                if (reconstructedHash !== existing.originalHash) {
+                    progressCallback?.({ 
+                        type: 'error', 
+                        modelId, 
+                        error: `Binary integrity check failed. Expected: ${existing.originalHash}, Got: ${reconstructedHash}` 
+                    });
+                    // Delete corrupted data and re-fetch
+                    await deleteModelData(modelId);
+                    progressCallback?.({ type: 'info', modelId, msg: 'Corrupted data detected, re-downloading model' });
+                    return loadOrFetchModel(url, modelId, progressCallback);
+                }
+                progressCallback?.({ type: 'info', modelId, msg: 'Binary integrity verified successfully' });
+            }
+            
+            progressCallback?.({ type: 'complete', modelId, totalBytes });
+            return out.buffer;
+        } catch (error) {
+            progressCallback?.({ type: 'error', modelId, error: `Failed to load model chunks: ${error}` });
+            // Delete potentially corrupted data and re-fetch
+            await deleteModelData(modelId);
+            progressCallback?.({ type: 'info', modelId, msg: 'Error loading chunks, re-downloading model' });
+            return loadOrFetchModel(url, modelId, progressCallback);
         }
-        progressCallback?.({ type: 'complete', modelId, totalBytes });
-        return out.buffer;
     }
 
     const chunkKeys: string[] = [];
@@ -168,6 +206,10 @@ export async function loadOrFetchModel(
     const buf = await fetchWithProgress(url, (loaded, total) =>
         progressCallback?.({ type: 'download', url, loaded, total })
     );
+
+    // Calculate hash of original data for integrity verification
+    const originalHash = await calculateHash(buf);
+    progressCallback?.({ type: 'info', modelId, msg: `Calculated hash: ${originalHash}` });
 
     const parts = splitIntoChunks(buf);
     for (const p of parts) {
@@ -183,7 +225,12 @@ export async function loadOrFetchModel(
         chunkCounter++;
     }
 
-    await putModelMeta(db, { modelId, chunkKeys });
+    await putModelMeta(db, { 
+        modelId, 
+        chunkKeys, 
+        originalHash,
+        totalBytes: buf.byteLength 
+    });
 
     const buffers = await Promise.all(chunkKeys.map(k => loadChunk(db, k)));
     const totalBytes = buffers.reduce((s, b) => s + b.byteLength, 0);

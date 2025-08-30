@@ -609,7 +609,7 @@ export class AppsView extends HTMLElement {
     // Filter tabs
     this.shadowRoot.querySelectorAll('.filter-tab').forEach(tab => {
       tab.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement
+        const target = e.currentTarget as HTMLElement
         const filter = target.dataset.filter as 'my-apps' | 'llms'
         if (filter) {
           this.filter = filter
@@ -739,4 +739,4 @@ export class AppsView extends HTMLElement {
   }
 }
 
-customElements.define('apps-view', AppsView) 
+customElements.define('apps-view', AppsView)
