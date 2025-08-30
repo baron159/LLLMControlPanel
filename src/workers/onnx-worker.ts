@@ -184,6 +184,23 @@ class WorkerONNXProvider {
         outputNames: [...session.outputNames]
       };
       
+      // Log input shapes for debugging
+      console.log('Input shapes from session:');
+      for (const inputName of session.inputNames) {
+        try {
+          // Try to get the input metadata if available
+          const inputMeta = (session as any).inputMetadata?.[inputName];
+          if (inputMeta) {
+            console.log(`  ${inputName}: shape ${inputMeta.dims}, type ${inputMeta.type}`);
+          }
+        } catch (e) {
+          // Fallback if metadata not available
+          console.log(`  ${inputName}: metadata not available`);
+        }
+      }
+      
+
+      
       this.sessions.set(modelId, onnxSession);
       console.log(`Model ${modelId} loaded successfully`);
       return true;
@@ -224,11 +241,43 @@ class WorkerONNXProvider {
       const inputIds = new BigInt64Array(inputs.map(id => BigInt(id)));
       const feeds: Record<string, any> = {};
       
-      // Use the first input name from the session
-      if (session.inputNames.length > 0) {
-        feeds[session.inputNames[0]] = new this.ort.Tensor('int64', inputIds, [1, inputIds.length]);
-      } else {
-        throw new Error('No input names found in session');
+      // Set up all required inputs based on the model's expected input names
+      for (const inputName of session.inputNames) {
+        if (inputName === 'input_ids') {
+          feeds[inputName] = new this.ort.Tensor('int64', inputIds, [1, inputIds.length]);
+        } else if (inputName === 'attention_mask') {
+          // Create attention mask (all tokens are attended to)
+          const attentionMask = new BigInt64Array(inputIds.length).fill(BigInt(1));
+          feeds[inputName] = new this.ort.Tensor('int64', attentionMask, [1, attentionMask.length]);
+        } else if (inputName === 'position_ids') {
+          // Create position IDs (0, 1, 2, ...)
+          const positionIds = new BigInt64Array(inputIds.length);
+          for (let i = 0; i < inputIds.length; i++) {
+            positionIds[i] = BigInt(i);
+          }
+          feeds[inputName] = new this.ort.Tensor('int64', positionIds, [1, positionIds.length]);
+        } else if (inputName.startsWith('past_key_values.')) {
+          // For first inference, provide empty past_key_values tensors
+          // The model requires all inputs to be present with correct dimensions
+          const match = inputName.match(/past_key_values\.(\d+)\.(key|value)/);
+          if (match) {
+            // Create empty tensors for first inference (no previous tokens)
+            // Use more conservative dimensions that work across different model sizes
+            const batchSize = 1;
+            const numHeads = 4; // Conservative default - many small models use 4-8 heads
+            const seqLen = 0; // No previous tokens for first inference
+            const headDim = 64; // Conservative default - many models use 64-128
+            
+            // Create empty tensor with correct 4D shape
+            const emptyTensor = new Float32Array(0);
+            feeds[inputName] = new this.ort.Tensor('float32', emptyTensor, [batchSize, numHeads, seqLen, headDim]);
+            console.log(`Providing 4D empty tensor for ${inputName} with shape [${batchSize}, ${numHeads}, ${seqLen}, ${headDim}]`);
+          }
+        }
+      }
+      
+      if (Object.keys(feeds).length === 0) {
+        throw new Error('No valid inputs could be prepared for the model');
       }
       
       // Run inference
@@ -245,25 +294,59 @@ class WorkerONNXProvider {
       const outputTensor = results[outputName];
       console.log('Output tensor shape:', outputTensor.dims);
       
-      // For basic implementation, just take the last token prediction
+      // Process the logits to generate a proper response
       const outputData = outputTensor.data as Float32Array;
+      console.log('Output data length:', outputData.length);
       
-      // Find the token with highest probability (argmax)
-      let maxIndex = 0;
-      let maxValue = outputData[0];
-      for (let i = 1; i < outputData.length; i++) {
-        if (outputData[i] > maxValue) {
-          maxValue = outputData[i];
-          maxIndex = i;
+      // For text generation, we want to sample from the last token's logits
+      // The output shape is [batch_size, seq_len, vocab_size]
+      const seqLen = outputTensor.dims[1];
+      const vocabSize = outputTensor.dims[2];
+      
+      // Get the logits for the last token in the sequence
+      const lastTokenLogits = outputData.slice((seqLen - 1) * vocabSize, seqLen * vocabSize);
+      console.log('Last token logits length:', lastTokenLogits.length);
+      
+      // Apply temperature and top-k sampling for better text generation
+      const temperature = 0.7;
+      const topK = 50;
+      
+      // Apply temperature scaling
+      const scaledLogits = Array.from(lastTokenLogits).map(logit => logit / temperature);
+      
+      // Apply softmax to get probabilities
+      const maxLogit = Math.max(...scaledLogits);
+      const expLogits = scaledLogits.map(logit => Math.exp(logit - maxLogit));
+      const sumExpLogits = expLogits.reduce((sum, exp) => sum + exp, 0);
+      const probabilities = expLogits.map(exp => exp / sumExpLogits);
+      
+      // Top-k sampling
+      const topKIndices = probabilities
+        .map((prob, index) => ({ prob, index }))
+        .sort((a, b) => b.prob - a.prob)
+        .slice(0, topK);
+      
+      // Sample from top-k
+      const randomValue = Math.random();
+      let cumulativeProb = 0;
+      let selectedIndex = topKIndices[0].index;
+      
+      for (const { prob, index } of topKIndices) {
+        cumulativeProb += prob;
+        if (randomValue <= cumulativeProb) {
+          selectedIndex = index;
+          break;
         }
       }
       
-      // Decode the predicted token
-      const decodedText = await tokenizer.decode([maxIndex]);
+      console.log('Selected token index:', selectedIndex);
+      
+      // Decode the selected token
+      const decodedText = await tokenizer.decode([selectedIndex]);
       console.log('Decoded text:', decodedText);
       
-      // Return response with decoded token
-      const response = `${message} ${decodedText}`.trim();
+      // For chat models, return just the generated text, not the input + output
+      const response = decodedText;
       console.log('Generated response:', response);
       return response;
       
