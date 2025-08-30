@@ -401,16 +401,74 @@ export class ONNXProvider extends BaseONNXHandler {
       throw new Error(`Model ${this.currentModelId} is not loaded`)
     }
 
+    if (!this.tokenizer) {
+      throw new Error('Tokenizer not loaded')
+    }
+
     try {
-      // For demo purposes, return a mock response
-      // In a real implementation, you would run actual inference
-      const mockResponse = `Generated response for: "${message}" using model: ${this.currentModelId}. This is a mock response from the ONNX provider.`
+      console.log('Generating response for:', message)
+       
+       // Basic text generation implementation
+       // Note: maxTokens option not used in this basic implementation
+       
+       // Encode the input message
+      const inputs = await this.tokenizer.encode(message)
+      console.log('Encoded inputs:', inputs)
       
-      console.log('Generated response:', mockResponse)
-      return mockResponse
+      // Prepare input tensor
+      const inputIds = new BigInt64Array(inputs.map(id => BigInt(id)))
+      const feeds: Record<string, any> = {}
+      
+      // Use the first input name from the session
+      if (session.inputNames.length > 0) {
+        feeds[session.inputNames[0]] = new this.ort!.Tensor('int64', inputIds, [1, inputIds.length])
+      } else {
+        throw new Error('No input names found in session')
+      }
+      
+      // Run inference
+      console.log('Running inference with feeds:', Object.keys(feeds))
+      const results = await session.session.run(feeds)
+      console.log('Inference results:', Object.keys(results))
+      
+      // Get output tensor
+      const outputName = session.outputNames[0]
+      if (!outputName || !results[outputName]) {
+        throw new Error('No valid output found')
+      }
+      
+      const outputTensor = results[outputName]
+      console.log('Output tensor shape:', outputTensor.dims)
+      
+      // For basic implementation, just take the last token prediction
+      // In a real implementation, you'd implement proper autoregressive generation
+      const outputData = outputTensor.data as Float32Array
+      
+      // Find the token with highest probability (argmax)
+      let maxIndex = 0
+      let maxValue = outputData[0]
+      for (let i = 1; i < outputData.length; i++) {
+        if (outputData[i] > maxValue) {
+          maxValue = outputData[i]
+          maxIndex = i
+        }
+      }
+      
+      // Decode the predicted token
+      const decodedText = await this.tokenizer.decode([maxIndex])
+      console.log('Decoded text:', decodedText)
+      
+      // For now, return a simple response with the decoded token
+      // This is a basic implementation - real autoregressive generation would be more complex
+      const response = `${message} ${decodedText}`.trim()
+      
+      console.log('Generated response:', response)
+      return response
+      
     } catch (error) {
       console.error('Error generating response:', error)
-      throw error
+      // Fallback to a basic response if inference fails
+      return `Echo: ${message} (inference failed, using fallback)`
     }
   }
 

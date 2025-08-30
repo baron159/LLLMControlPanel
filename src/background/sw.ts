@@ -155,50 +155,24 @@ class LLMServiceWorker {
 
   private async checkDownloadedModels(): Promise<void> {
     try {
-      // Check IndexedDB for downloaded models
-      const db = await this.openModelDatabase();
-      const transaction = db.transaction(['models'], 'readonly');
-      const store = transaction.objectStore('models');
-      const request = store.getAllKeys();
+      // Check IndexedDB for downloaded models using fetchchunkstore
+      const modelIds = this.state.modelList.currentModelList;
       
-      request.onsuccess = () => {
-        const downloadedModelIds = request.result as string[];
-        console.log('Downloaded models found:', downloadedModelIds);
-        
-        // Update model configs to reflect download status
-        for (const modelId of this.state.modelList.currentModelList) {
-          const config = this.state.modelList.getModelConfig(modelId);
-          if (config) {
-            // Mark as downloaded if found in IndexedDB
-            (config as any).isDownloaded = downloadedModelIds.includes(modelId);
-          }
+      for (const modelId of modelIds) {
+        const config = this.state.modelList.getModelConfig(modelId);
+        if (config) {
+          // Check if model data exists in IndexedDB using hasModelData
+          const isDownloaded = await hasModelData(modelId);
+          (config as any).isDownloaded = isDownloaded;
+          console.log(`Model ${modelId} download status:`, isDownloaded);
         }
-      };
-      
-      db.close();
+      }
     } catch (error) {
       console.error('Failed to check downloaded models:', error);
     }
   }
 
-  private async openModelDatabase(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('llm-models', 1);
-      
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains('models')) {
-          db.createObjectStore('models', { keyPath: 'modelId' });
-        }
-        if (!db.objectStoreNames.contains('chunks')) {
-          db.createObjectStore('chunks');
-        }
-      };
-      
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
+
 
   async handleAddModel(modelConfig: ModelConfig): Promise<{ success: boolean; message: string }> {
     try {

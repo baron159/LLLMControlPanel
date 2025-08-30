@@ -31,8 +31,8 @@ export class ChatView extends HTMLElement {
         this.downloadedModels = Array.isArray(downloadedModels) ? downloadedModels : []
         this.updateModelOptions()
       }
-    } catch {
-      // ignore errors for UI-only pass
+    } catch (e) {
+      console.error('Failed to fetch downloaded models:', e)
     }
   }
 
